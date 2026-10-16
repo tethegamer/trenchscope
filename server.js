@@ -272,6 +272,7 @@ app.get('/api/list/:kind', async (req, res) => {
       if (missing.length) { const ds = await dexTokens(missing); rows = [...[...ds.values()].map(fromDex), ...rows]; }
       rows = rows.map((r, i) => ({ r, i })).sort((a, b) => (boosts[b.r.mint] || 0) - (boosts[a.r.mint] || 0) || a.i - b.i).map(x => x.r);
     }
+    for (const r of rows) og.sample(r.mint, r.mcap ?? r.fdv);
     enqueue(rows.slice(0, 120).map(r => r.mint)); enqueueOG(rows.slice(0, 120));
     res.set('Cache-Control', 'no-cache');
     res.json({ updatedAt: store.get('list:' + req.params.kind)?.at || Date.now(), rows: rows.map(r => withIntel(r, boosts, scoped)) });
@@ -316,7 +317,8 @@ app.get('/api/token/:mint', async (req, res) => {
       } catch {}
     }
     const ident = { mint, name: main?.name || safety?.name || pump?.name, symbol: main?.symbol || safety?.symbol || pump?.symbol };
-    const ogInfo = og.peek(mint) || (ident.name ? await Promise.race([og.check(ident).catch(() => null), new Promise(r => setTimeout(() => r(null), 4000))]) : null);
+    let ogInfo = og.peek(mint) || (ident.name ? await Promise.race([og.check(ident).catch(() => null), new Promise(r => setTimeout(() => r(null), 4000))]) : null);
+    if (ogInfo && !('vv' in ogInfo)) ogInfo = og.peek(mint) || ogInfo;
     let dev = null;
     const creator = safety?.creator || pump?.creator;
     if (creator) {
@@ -327,7 +329,7 @@ app.get('/api/token/:mint', async (req, res) => {
     if (!main && !pump && safety?.unavailable) return fail(res, new Error('Token not found on any data source'), 404);
     ok(res, {
       mint, main, pairs: sol.slice(0, 8).map(fromDex), safety, dev, pump: pumpInfo, og: ogInfo,
-      scope: pay.scopeInfo(mint), promo: pay.activeBoosts()[mint] || 0,
+      flippedBy: og.flippedBy(mint), scope: pay.scopeInfo(mint), promo: pay.activeBoosts()[mint] || 0,
       name: main?.name || safety?.name || pump?.name, symbol: main?.symbol || safety?.symbol || pump?.symbol,
       icon: main?.icon || pump?.image_uri || null,
     }, 20);
@@ -368,6 +370,19 @@ app.get('/api/ohlcv/:pool', async (req, res) => {
   } catch (e) { res.status(503).json({ error: e.message, fallback: true }); }
 });
 // warm OHLCV (5m) for the top trending pools at low priority so most chart opens are instant
+// sample mcap of vamps and their OGs every 10 min (one DexScreener batch per 30 tokens, low priority)
+async function sampleVampMcaps() {
+  const mints = new Set();
+  for (const [m, r] of Object.entries(og.db.results)) if (r.status === 'copycat' && r.og && Date.now() - r.checkedAt < 48 * 3600e3) { mints.add(m); mints.add(r.og.mint); }
+  const list = [...mints].slice(0, 300);
+  for (let i = 0; i < list.length; i += 30) {
+    const chunk = list.slice(i, i + 30);
+    const pairs = await getJSON(`https://api.dexscreener.com/tokens/v1/solana/${chunk.join(',')}`, { prio: PRIO.low }).catch(() => []);
+    const best = {};
+    for (const p of pairs || []) { const m = p.baseToken?.address; if (!best[m] || (p.liquidity?.usd || 0) > (best[m].liquidity?.usd || 0)) best[m] = p; }
+    for (const [m, p] of Object.entries(best)) og.sample(m, p.marketCap ?? p.fdv);
+  }
+}
 async function prefetchOhlcv() {
   try {
     const rows = await lists.trending();
@@ -461,6 +476,7 @@ if (require.main === module) {
   // warm caches so the first visitor sees data and safety scores
   const warm = () => Promise.allSettled(Object.keys(lists).map(k => lists[k]().then(r => { enqueue(r.slice(0, 80).map(x => x.mint)); enqueueOG(r.slice(0, 80)); })));
   warm(); setInterval(warm, 90e3).unref();
+  setTimeout(() => { sampleVampMcaps(); setInterval(sampleVampMcaps, 10 * 60e3).unref(); }, 60e3);
   setTimeout(() => { prefetchOhlcv(); setInterval(prefetchOhlcv, 5 * 60e3).unref(); }, 20e3);
 }
 module.exports = { app };

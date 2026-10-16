@@ -155,3 +155,4 @@ tr.promoted{background:linear-gradient(90deg,rgba(255,209,102,.06),transparent 4
 .fb-note{position:absolute;left:8px;bottom:8px;z-index:6;background:rgba(12,15,21,.92);border:1px solid var(--line2);border-radius:8px;padding:4px 8px;font-size:11px;color:var(--mut);display:flex;gap:6px;align-items:center}
 .price-big{cursor:pointer;user-select:none;border-radius:10px;padding:4px 8px;margin-right:-8px;transition:background .15s}.price-big:hover{background:var(--card)}
 .pb-hint{font-size:11px;color:var(--dim);margin-top:2px}.pb-hint u{text-decoration:none;color:var(--mut);font-weight:700}
+.chip.vv{color:#0d1a05;background:linear-gradient(135deg,#9be15d,#f5c542);border-color:#b9d94a;font-weight:800}

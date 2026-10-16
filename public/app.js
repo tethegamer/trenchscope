@@ -65,7 +65,8 @@ const dt = ts => ts ? new Date(ts).toLocaleString(undefined, { year: 'numeric', 
 function ogTag(o, big) {
   if (!o) return '';
   if (o.status === 'og') return `<span class="chip og" title="${esc(`OG: first token with this name/ticker to graduate — earliest ${o.gradDex} pair ${dt(o.gradAt)}. ${o.copycats ? o.copycats + ' later vamp(s) reuse the name.' : 'No vamps found.'}${o.olderNonGraduated ? ' Note: ' + o.olderNonGraduated + ' same-name token(s) traded earlier on other DEXes without graduating.' : ''} Based on DexScreener-indexed pairs only.`)}">OG${big && o.copycats ? ` · ${o.copycats} vamp${o.copycats > 1 ? 's' : ''}` : ''}</span>`;
-  if (o.status === 'copycat' && o.og) return `<a class="chip copy" href="/token/${o.og.mint}" data-link data-stop title="${esc(`Vamp: reused a name that already graduated earlier — ${o.og.symbol} (${short(o.og.mint)}) graduated first (${o.og.gradDex}, ${dt(o.og.gradAt)})${o.gradAt ? '; this one graduated ' + dt(o.gradAt) : '; this one has not graduated'}. Click to open the OG. Based on DexScreener-indexed pairs only.`)}">${big ? 'Vamp of ' + esc(o.og.symbol) + ' ↗' : 'VAMP'}</a>`;
+  const vvChip = o.vv ? `<span class="chip vv" title="${esc(`Valid Vamp: flipped the OG 5x+ — smoothed (4h median) market cap ${o.ratio.toFixed(1)}x ${o.og.symbol}'s, and at least 24h old. Lost if it falls back under 5x.`)}">VV${big ? ' · Valid Vamp ' + o.ratio.toFixed(1) + 'x' : ''}</span>` : '';
+  if (o.status === 'copycat' && o.og) return vvChip + `<a class="chip copy" href="/token/${o.og.mint}" data-link data-stop title="${esc(`Vamp: reused a name that already graduated earlier — ${o.og.symbol} (${short(o.og.mint)}) graduated first (${o.og.gradDex}, ${dt(o.og.gradAt)})${o.gradAt ? '; this one graduated ' + dt(o.gradAt) : '; this one has not graduated'}. Click to open the OG. Based on DexScreener-indexed pairs only.`)}">${big ? 'Vamp of ' + esc(o.og.symbol) + ' ↗' : 'VAMP'}</a>`;
   return '';
 }
 
@@ -306,7 +307,7 @@ async function tokenPage(mint) {
   <a href="/" data-link class="mut" style="font-size:13px">← Screener</a>
   ${sc && safeUrl(sc.banner) ? `<div class="banner" style="margin-top:10px"><img src="${esc(sc.banner)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></div>` : ''}
   <div class="tp-head" style="margin-top:10px">${icon({ icon: (sc && safeUrl(sc.logo)) || d.icon, symbol: d.symbol })}
-    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)} ${promoTag(d.promo, true)}</h1>
+    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)}${d.flippedBy?.length ? `<span class="chip copy" title="Valid Vamp(s) have 5x+ this token's smoothed market cap">Flipped by ${esc(d.flippedBy[0].symbol || short(d.flippedBy[0].mint))}</span>` : ''} ${promoTag(d.promo, true)}</h1>
       <div class="addr"><span>${esc(short(mint))}</span><button class="copy" data-copy="${mint}">Copy CA</button>${m.dex ? `<span class="chip">${esc(m.dex)}</span>` : ''}${s.launchpad ? `<span class="chip">${esc(s.launchpad)}</span>` : ''}${m.createdAt ? `<span class="chip">Pair age ${age(m.createdAt)}</span>` : ''}${socials.map(x => `<a class="chip" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join('')}</div></div>
     <div class="price-big" id="pbig" role="button" tabindex="0" title="Tap to switch Price ⇄ Market cap"></div>
   </div>
@@ -345,7 +346,7 @@ async function tokenPage(mint) {
         <dt>Linked wallet clusters</dt><dd>${s.insiderClusters}</dd><dt>Largest cluster</dt><dd>${s.biggestCluster ? s.biggestCluster + ' wallets' : '—'}</dd>
         <dt>Supply held by clusters</dt><dd>${s.insiderPct != null ? s.insiderPct.toFixed(1) + '%' : '—'}</dd></dl>
         <p class="dim" style="font-size:11px;margin:10px 0 0">Heuristic from RugCheck's wallet transfer graph: groups of wallets funded/linked together that still hold supply. Huge (>200 wallet) graphs are ignored as exchange noise.</p>` : '<div class="mut">Unavailable.</div>'}</div>
-      <div class="card"><h3>👑 OG check <span class="r">name/ticker originality</span></h3>${ogCard(d.og, d.symbol)}</div>
+      <div class="card"><h3>👑 OG check <span class="r">name/ticker originality</span></h3>${ogCard(d.og, d.symbol, d.flippedBy)}</div>
       <div class="card"><h3>👤 Dev wallet</h3>${d.dev ? `<dl class="kv">
         <dt>Creator</dt><dd><a class="mono" style="color:var(--b)" href="https://solscan.io/account/${esc(d.dev.address)}" target="_blank" rel="noopener">${esc(short(d.dev.address))} ↗</a></dd>
         <dt>Holds of supply</dt><dd class="${d.dev.holdingPct > 5 ? 'dn' : ''}">${d.dev.holdingPct != null ? d.dev.holdingPct.toFixed(2) + '%' : '—'}</dd>
@@ -379,7 +380,7 @@ async function tokenPage(mint) {
     loadTrades(m.pair, d.symbol); const iv = setInterval(() => loadTrades(m.pair, d.symbol), 20000); cleanup.push(() => clearInterval(iv));
   } else $('#trades').innerHTML = '<div class="mut">No pool yet.</div>';
 }
-function ogCard(o, sym) {
+function ogCard(o, sym, flipped) {
   if (!o) return '<div class="mut">Not checked yet (search sources busy) — reload in a minute.</div>';
   const note = `<p class="dim" style="font-size:11px;margin:10px 0 0">Compares Solana tokens with the same normalized name (case, spaces, emojis, suffixes like “coin”/“.fun” ignored) or same ticker + overlapping name. OG = earliest first Raydium/PumpSwap pair (pump.fun graduation venue). Only tokens DexScreener search returns are considered (${o.size} found, ${o.graduatedCount} graduated).</p>`;
   const v = o.status === 'og' ? `<span style="color:var(--gold)">OG — graduated first</span>` : o.status === 'copycat' ? `<span class="dn">VAMP — reused a name that already graduated earlier</span>` : '<span class="mut">No graduated token with this name found</span>';
@@ -387,6 +388,8 @@ function ogCard(o, sym) {
     <dt>This token graduated</dt><dd>${o.gradAt ? dt(o.gradAt) + ' · ' + esc(o.gradDex) : 'Not yet (no Raydium/PumpSwap pair)'}</dd>
     ${o.status === 'copycat' && o.og ? `<dt>OG token</dt><dd><a href="/token/${o.og.mint}" data-link style="color:var(--gold)">${esc(o.og.symbol)} · ${esc(short(o.og.mint))} ↗</a></dd><dt>OG graduated</dt><dd>${dt(o.og.gradAt)} · ${esc(o.og.gradDex)}</dd>` : ''}
     ${o.status === 'og' ? `<dt>Vamps found</dt><dd>${o.copycats}</dd>` : ''}
+    ${o.status === 'copycat' ? `<dt>Valid Vamp (VV)</dt><dd>${o.vv ? `<span class="up">Yes — ${o.ratio.toFixed(1)}x the OG</span>` : o.ratio ? `No — ${o.ratio.toFixed(2)}x the OG${o.ageOk ? '' : ', under 24h old'}` : 'Not enough mcap history yet'}</dd>` : ''}
+    ${flipped?.length ? `<dt>Flipped by</dt><dd>${flipped.map(f => `<a href="/token/${f.mint}" data-link class="chip vv">${esc(f.symbol || short(f.mint))} ${f.ratio.toFixed(1)}x</a>`).join(' ')}</dd>` : ''}
     ${o.olderNonGraduated ? `<dt>Older non-pump tokens</dt><dd class="mut">${o.olderNonGraduated} traded earlier on other DEXes</dd>` : ''}
     <dt>Same-name tokens indexed</dt><dd>${o.size}</dd></dl>${note}`;
 }

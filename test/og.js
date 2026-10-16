@@ -10,6 +10,33 @@ assert.ok(sameIdentity({ name: 'Flying Tesla Roadster', symbol: 'FTR' }, { name:
 assert.ok(sameIdentity({ name: 'streamoors.fun', symbol: 'STREAM' }, { name: 'Streamoors', symbol: 'STREAM' }));
 assert.ok(!sameIdentity({ name: 'Streamflow', symbol: 'STREAM' }, { name: 'streamoors', symbol: 'STREAM' }));
 console.log('✓ normalize / sameIdentity');
+// Valid Vamp: smoothed mcap >= 5x OG and >= 24h old; dynamic
+{
+  const os = require('os'), fs = require('fs'), path = require('path');
+  const { createOG } = require('../lib/og');
+  const o = createOG({ getJSON: async () => ({}), cached: async (k, t, f) => f(), file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vv-')), 'og.json') });
+  const H = 3600e3, now = Date.now(), OG = 'OGmint1111111111111111111111111111', V = 'Vamp11111111111111111111111111111';
+  const rec = { status: 'copycat', og: { mint: OG, symbol: 'OG' }, firstSeen: now - 30 * H };
+  const feed = (m, vals) => vals.forEach((v, i) => o.sample(m, v, now - (vals.length - 1 - i) * 30 * 60e3));
+  feed(OG, [1e6, 1e6, 1e6, 1e6]);
+  feed(V, [2e6, 2e6, 2e6, 40e6]);                 // one 40x spike can't fake it (median)
+  assert.equal(o.validVamp(rec, V, now).vv, false);
+  const V2 = 'Vamp22222222222222222222222222222';
+  feed(V2, [1e6, 1e6, 1e6, 9e6]);                  // short pump to 9x -> not VV
+  assert.equal(o.validVamp(rec, V2, now).vv, false);
+  const V3 = 'Vamp33333333333333333333333333333';
+  feed(V3, [6e6, 6e6, 6e6, 6e6]);
+  assert.equal(o.validVamp(rec, V3, now).vv, true);
+  assert.equal(o.validVamp({ ...rec, firstSeen: now - 10 * H }, V3, now).vv, false, 'under 24h');
+  o.db.results[V3] = rec; assert.equal(o.flippedBy(OG, now)[0].mint, V3);
+  // dynamic: drops under 5x later -> loses VV
+  [2e6, 2e6, 2e6, 2e6, 2e6, 2e6, 2e6, 2e6, 2e6].forEach((v, i) => o.sample(V3, v, now + (i + 1) * 30 * 60e3));
+  [1e6, 1e6, 1e6, 1e6, 1e6, 1e6, 1e6, 1e6, 1e6].forEach((v, i) => o.sample(OG, v, now + (i + 1) * 30 * 60e3));
+  assert.equal(o.validVamp(rec, V3, now + 270 * 60e3).vv, false);
+  const V4 = 'Vamp44444444444444444444444444444'; o.sample(V4, 9e6, now);
+  assert.equal(o.validVamp(rec, V4, now).ratio, null, 'needs history');
+  console.log('✓ Valid Vamp (VV) rules');
+}
 if (process.argv.includes('--offline')) process.exit(0);
 const { app } = require('../server');
 const srv = app.listen(0, async () => {
