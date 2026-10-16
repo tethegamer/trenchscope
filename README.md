@@ -24,7 +24,7 @@ DexScreener shows you charts. TrenchScope shows you charts **plus a safety score
 | Bundle / sniper heuristic | ❌ | ✅ linked-wallet clusters from RugCheck's transfer graph |
 | Pump.fun live coins | ❌ | ✅ |
 | OG vs Copycat tags for reused names | ❌ | ✅ 👑 OG badge, “Copycat of X” link, OG-only filter |
-| Enhanced token info | $299 | **On the Scope** $99 |
+| Enhanced token info | $299 | **On the Scope** $50 |
 | Boosts | ~$99–$899 | $19 / $49 / $129 |
 | Watchlist + price alerts | account needed | ✅ in-browser (localStorage + notifications), no login |
 | One-click buy | ❌ | ✅ Jupiter / Photon, plus SafeSign deep scan |
@@ -50,7 +50,7 @@ When a coin pumps, vamps relaunch the same name/ticker. TrenchScope finds every 
 ## 💸 Monetization (Solana Pay, USDC or SOL)
 | Product | Price | DexScreener |
 |---|---|---|
-| **On the Scope** — logo, banner, description, website/X/Telegram + crosshair “On the Scope” badge, reviewed before going live | $99 one-time | $299 Enhanced Token Info |
+| **On the Scope** — logo, banner, description, website/X/Telegram + crosshair “On the Scope” badge, reviewed before going live | $50 one-time | $299 Enhanced Token Info |
 | ⚡ 10x Boost | $19 / 12h | ~$99 / 12h* |
 | ⚡ 30x Boost | $49 / 24h | ~$249 / 12h* |
 | ⚡ 100x Boost | $129 / 24h | ~$899 / 24h* |

@@ -18,8 +18,8 @@ const OWNER = 'EL63Jz5kAamGAFtwiunvCJsFcAZWGUmagPTHZTrcPVv6';
 const MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 
 test('USDC: accepts correct recipient + amount, rejects underpayment', () => {
-  assert.ok(pay.verifyTransaction(usdcTx, { ...U, minAmount: 99 }).ok);
-  assert.strictEqual(pay.verifyTransaction(usdcTx, { ...U, minAmount: 99 }).received, 6000);
+  assert.ok(pay.verifyTransaction(usdcTx, { ...U, minAmount: 50 }).ok);
+  assert.strictEqual(pay.verifyTransaction(usdcTx, { ...U, minAmount: 50 }).received, 6000);
   assert.ok(!pay.verifyTransaction(usdcTx, { ...U, minAmount: 6000.000001 }).ok);
 });
 test('USDC: rejects payment to someone else (e.g. not the owner wallet)', () => assert.ok(!pay.verifyTransaction(usdcTx, { ...U, recipient: OWNER, minAmount: 19 }).ok));
@@ -44,7 +44,7 @@ test('On the Scope order: pending -> paid -> review -> approved shows profile; s
   h.setRpc(async m => m === 'getSignaturesForAddress' ? [{ signature: USDC_SIG, err: null, blockTime: usdcTx.blockTime }] : usdcTx);
   const o = await pay.createOrder('scope', MINT, { logo: 'https://x/logo.png', description: 'A test description long enough' });
   assert.strictEqual(o.status, 'pending'); assert.ok(o.options[0].url.startsWith('solana:'));
-  forceOption(o.id, 99);
+  forceOption(o.id, 50); assert.strictEqual(o.priceUsd, 50); assert.strictEqual(o.options[0].amount, 50);
   assert.strictEqual(pay.scopeInfo(MINT), null);
   const paid = await pay.checkOrder(o.id);
   assert.strictEqual(paid.status, 'review'); assert.strictEqual(paid.payment.amount, 6000);
@@ -73,6 +73,6 @@ test('live: re-fetch historical txs from public RPC and verify', async t => {
   let live;
   try { live = await Promise.all([USDC_SIG, SOL_SIG].map(s => pay.rpc('getTransaction', [s, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }]))); }
   catch (e) { t.skip('RPC unavailable: ' + e.message); return; }
-  assert.ok(pay.verifyTransaction(live[0], { ...U, minAmount: 99 }).ok);
+  assert.ok(pay.verifyTransaction(live[0], { ...U, minAmount: 50 }).ok);
   assert.ok(pay.verifyTransaction(live[1], { ...S, minAmount: 0.2 }).ok);
 });
