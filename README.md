@@ -1,4 +1,6 @@
-# TrenchScope 🔭
+<p align="center"><img src="public/wordmark.svg" width="420" alt="TrenchScope"></p>
+
+# TrenchScope
 
 **The Solana screener that tells you if a token is a rug *before* you click it.**
 
@@ -21,6 +23,9 @@ DexScreener shows you charts. TrenchScope shows you charts **plus a safety score
 | Dev wallet intel | ❌ | ✅ creator, % of supply held, SOL balance |
 | Bundle / sniper heuristic | ❌ | ✅ linked-wallet clusters from RugCheck's transfer graph |
 | Pump.fun live coins | ❌ | ✅ |
+| OG vs Copycat tags for reused names | ❌ | ✅ 👑 OG badge, “Copycat of X” link, OG-only filter |
+| Enhanced token info | $299 | **On the Scope** $99 |
+| Boosts | ~$99–$899 | $19 / $49 / $129 |
 | Watchlist + price alerts | account needed | ✅ in-browser (localStorage + notifications), no login |
 | One-click buy | ❌ | ✅ Jupiter / Photon, plus SafeSign deep scan |
 
@@ -32,6 +37,31 @@ DexScreener shows you charts. TrenchScope shows you charts **plus a safety score
 - **Quick links:** Jupiter, Photon, SafeSign (`https://safesign-pg8h.onrender.com`), DexScreener, Solscan, RugCheck, pump.fun.
 - **Server-side caching:** every upstream call goes through a TTL cache with in-flight de-duplication, stale-on-error fallback, per-host throttling (GeckoTerminal ≈ 50/min) and retry on 429/5xx. Safety scans run in a background queue (2 workers) so tables load instantly and badges fill in.
 
+## 👑 OG vs Copycat (`lib/og.js`)
+When a coin pumps, vamps relaunch the same name/ticker. TrenchScope finds every Solana token with the same identity and marks the **first one to graduate** as **OG**; later ones get a **Copycat** tag that links to the OG.
+- **Normalization:** lowercase, accents/emojis/`$`/punctuation/spaces stripped, leading “the”, one trailing suffix (`coin`, `token`, `official`, `sol`, `onsol`, `fun`, `ai`) removed — `streamoors.fun` = `Streamoors`, `The BONK Coin 🚀` = `bonk`.
+- **Same identity:** same normalized name, or same ticker AND one name contains the other (so `Streamflow` ≠ `streamoors` even though both are `STREAM`).
+- **Candidates:** DexScreener search by name and by ticker, then *all* pairs of every candidate via `/tokens/v1`.
+- **Graduation time:** earliest Raydium or PumpSwap pair (`pairCreatedAt`) — where pump.fun coins migrate when the curve completes. Earliest graduate = OG.
+- A same-name token that never graduated but traded earlier on another DEX (e.g. a Meteora launch) is **not** called a copycat; the OG card notes it.
+- Results are cached persistently in `data/og-cache.json` (6h TTL) and computed in a background queue.
+- Real example (verified 16 Oct 2026): trending **FTR “Flying Tesla Roadster”** (`DFMt…pump`, PumpSwap 14 Oct) is marked **Copycat of FTR `3w5c…`**, which had a Raydium pair since 14 Aug 2026.
+
+## 💸 Monetization (Solana Pay, USDC or SOL)
+| Product | Price | DexScreener |
+|---|---|---|
+| **On the Scope** — logo, banner, description, website/X/Telegram + crosshair “On the Scope” badge, reviewed before going live | $99 one-time | $299 Enhanced Token Info |
+| ⚡ 10x Boost | $19 / 12h | ~$99 / 12h* |
+| ⚡ 30x Boost | $49 / 24h | ~$249 / 12h* |
+| ⚡ 100x Boost | $129 / 24h | ~$899 / 24h* |
+
+\*commonly reported prices; DexScreener only shows boost prices in its own dialog.
+- Buyers order on **/advertise** → get Solana Pay QR codes / wallet links (USDC exact amount, or SOL quoted live and valid 1h) → `/order/:id` polls and verifies on-chain.
+- **No private keys.** Each payment option has a unique `reference` pubkey; the server looks up transactions with it via public RPC and checks the owner wallet’s USDC/SOL balance delta (logic adapted from SafeSign). A signature can only pay one order.
+- Boosts activate instantly, pin the token higher in Trending (ordered by active boosts) and are labelled **⚡ Promoted / AD**. DexScreener’s own boosts are shown separately as **DS⚡**. Boosts are refused for tokens our scanner rates high-risk.
+- On the Scope orders go to **review**; the owner approves/rejects at **/admin** (`ADMIN_PASSWORD` env, timing-safe compare, lockout after 10 failures). Only approved info is shown.
+- Orders persist in `data/orders.json` (`ORDERS_FILE` to change).
+
 ## Data sources (all free, no keys)
 DexScreener (`/tokens/v1`, `/latest/dex/search`, token-boosts, token-profiles) · GeckoTerminal (trending/new pools, OHLCV, trades) · pump.fun frontend API · RugCheck report API · GoPlus Solana token security · Solana public RPC (`getBalance`). Nothing shown in the UI is invented — when a source has no value the UI shows "—".
 
@@ -39,9 +69,9 @@ DexScreener (`/tokens/v1`, `/latest/dex/search`, token-boosts, token-profiles) �
 ```bash
 npm install
 npm start          # http://localhost:3000  (PORT env to change)
-npm test           # live smoke test against the real APIs
+npm test           # payment verification (real historical txs) + OG tests + live API smoke test
 ```
-Optional env: `SOLANA_RPC` (defaults to `https://api.mainnet-beta.solana.com`).
+Env: `SOLANA_RPC` (default public mainnet RPC), `ADMIN_PASSWORD` (enables /admin), `SOL_RECIPIENT` (owner wallet, default `E4gJZ7k2eZDHNxZMWdnXu5XytwpkcYbeLzXXkKMMS8Qv`), `ORDERS_FILE`, `OG_CACHE_FILE`.
 
 ## Deploy (Render free)
 Push the repo, then **New → Blueprint** in Render and select it — `render.yaml` sets up a free Node web service with a `/api/health` check.
@@ -53,6 +83,9 @@ Push the repo, then **New → Blueprint** in Render and select it — `render.ya
 - Pump.fun's frontend API is unofficial and may change or block datacenter IPs.
 - Free public APIs rate-limit; on a busy instance safety badges may take a minute to fill in.
 - Alerts only fire while a TrenchScope tab is open (no push server).
+- OG detection only sees tokens DexScreener search returns (~30 pairs per query); very common names may miss older tokens. Raydium pairs are treated as graduations even for tokens launched directly on Raydium. pump.fun's search API ignores the search term from servers, so it isn't used.
+- **Render free has no persistent disk:** `data/orders.json` and the OG cache are wiped on redeploy/restart. For real sales, attach a Render disk (paid) or point `ORDERS_FILE` to persistent storage, and back up orders. On-chain payments themselves are never lost — an order can be re-verified from its reference.
+- On the Scope assets are submitted as https URLs (no file upload/hosting); rejected-order refunds are manual.
 - Not financial advice. Scores are heuristics.
 
 MIT licensed.

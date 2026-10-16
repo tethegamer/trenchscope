@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 128" fill="none">
+  <defs><linearGradient id="tsg" x1="20" y1="10" x2="108" y2="118" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#22d3ee"/><stop offset=".5" stop-color="#4f7cff"/><stop offset="1" stop-color="#8b3dff"/></linearGradient></defs>
+  <g stroke="url(#tsg)" stroke-width="9"><path d="M73.3 21.0 A44 44 0 0 1 107.0 54.7"/><path d="M107.0 73.3 A44 44 0 0 1 73.3 107.0"/><path d="M54.7 107.0 A44 44 0 0 1 21.0 73.3"/><path d="M21.0 54.7 A44 44 0 0 1 54.7 21.0"/><path d="M64 4v26M64 98v26M4 64h26M98 64h26"/></g>
+  <path d="M40 42h48v14H71v34H57V56H40z" fill="url(#tsg)"/>
+  <text x="140" y="84" font-family="Inter,Arial,sans-serif" font-weight="800" font-size="60" letter-spacing="-1.5"><tspan fill="#ffffff">Trench</tspan><tspan fill="#84e639">Scope</tspan></text>
+</svg>

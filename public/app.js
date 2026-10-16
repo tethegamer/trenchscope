@@ -55,6 +55,20 @@ function pips(s) {
   return `<span class="pips">${p(s.mintAuth ? 'bad' : 'ok', 'M', s.mintAuth ? 'Mint authority ACTIVE' : 'Mint revoked')}${p(s.freezeAuth ? 'bad' : 'ok', 'F', s.freezeAuth ? 'Freeze authority ACTIVE' : 'Freeze revoked')}${s.lpLocked == null ? p('', 'LP', s.isCurve ? 'On bonding curve' : 'LP lock unknown') : p(s.lpLocked >= 90 ? 'ok' : s.lpLocked >= 50 ? 'wn' : 'bad', 'LP', `LP ${s.lpLocked.toFixed(0)}% locked/burned`)}${s.top10 == null ? '' : p(s.top10 > 50 ? 'bad' : s.top10 > 30 ? 'wn' : 'ok', 'T10', `Top 10 hold ${s.top10.toFixed(1)}%`)}${s.bundled ? p('bad', 'BNDL', 'Bundle / insider cluster detected') : ''}</span>`;
 }
 
+// ---------- paid placements ----------
+const SCOPE_ICO = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>';
+const scopeTag = big => `<span class="chip scope" title="On the Scope: the project paid for an enhanced profile and TrenchScope reviewed the submitted info. This is a paid listing, not an endorsement — always check the safety score.">${SCOPE_ICO}${big ? ' On the Scope' : ''}</span>`;
+const promoTag = (n, big) => n ? `<span class="chip promo" title="Promoted: ${n} paid boosts active on TrenchScope. Paid placement — ranking raised in Trending.">⚡${big ? ' Promoted · ' : ''}${n}${big ? ' boosts' : ''}${big ? '' : ' AD'}</span>` : '';
+
+// ---------- OG / copycat ----------
+const dt = ts => ts ? new Date(ts).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?';
+function ogTag(o, big) {
+  if (!o) return '';
+  if (o.status === 'og') return `<span class="chip og" title="${esc(`OG: first token with this name/ticker to graduate — earliest ${o.gradDex} pair ${dt(o.gradAt)}. ${o.copycats ? o.copycats + ' later token(s) reuse the name.' : 'No copycats found.'}${o.olderNonGraduated ? ' Note: ' + o.olderNonGraduated + ' same-name token(s) traded earlier on other DEXes without graduating.' : ''} Based on DexScreener-indexed pairs only.`)}">OG${big && o.copycats ? ` · ${o.copycats} copycat${o.copycats > 1 ? 's' : ''}` : ''}</span>`;
+  if (o.status === 'copycat' && o.og) return `<a class="chip copy" href="/token/${o.og.mint}" data-link data-stop title="${esc(`Copycat: ${o.og.symbol} (${short(o.og.mint)}) graduated first (${o.og.gradDex}, ${dt(o.og.gradAt)})${o.gradAt ? '; this one graduated ' + dt(o.gradAt) : '; this one has not graduated'}. Click to open the OG. Based on DexScreener-indexed pairs only.`)}">${big ? 'Copycat of ' + esc(o.og.symbol) + ' ↗' : 'COPY'}</a>`;
+  return '';
+}
+
 // ---------- watchlist & alerts ----------
 let watch = LS.get('watch', {}); // mint -> {symbol, icon, addedAt}
 let alerts = LS.get('alerts', []); // {id, mint, symbol, dir, price}
@@ -111,7 +125,8 @@ function route() {
   $('#results').hidden = true; $('#drawer').hidden = true;
   const m = location.pathname.match(/^\/token\/([1-9A-HJ-NP-Za-km-z]{32,44})/);
   window.scrollTo(0, 0);
-  if (m) tokenPage(m[1]); else listPage();
+  const o = location.pathname.match(/^\/order\/([a-f0-9]{20})$/);
+  if (m) tokenPage(m[1]); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else listPage();
 }
 
 // ---------- list page ----------
@@ -122,13 +137,13 @@ const TABS = [
   { id: 'pumpfun', label: '<span class="dot"></span> Pump.fun live', desc: 'Coins currently live-streaming on pump.fun (bonding curve & migrated).' },
   { id: 'watch', label: '★ Watchlist', desc: 'Your starred tokens — saved locally in this browser.' },
 ];
-const DEF = { tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, sort: null, dir: -1 };
+const DEF = { tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, ogOnly: false, sort: null, dir: -1 };
 let st = { ...DEF, ...LS.get('filters', {}) };
 const saveSt = () => LS.set('filters', st);
-let rows = [], safetyMap = {}, lastUpdated = 0;
+let rows = [], safetyMap = {}, ogMap = {}, lastUpdated = 0;
 
 function filtered() {
-  let r = rows.map(x => ({ ...x, safety: safetyMap[x.mint] || x.safety }));
+  let r = rows.map(x => ({ ...x, safety: safetyMap[x.mint] || x.safety, og: ogMap[x.mint] || x.og }));
   const n = v => v ?? 0;
   if (st.liq) r = r.filter(x => n(x.liquidity) >= st.liq || (st.tab === 'pumpfun' && x.liquidity == null));
   if (st.vol) r = r.filter(x => n(x.volume?.h24) >= st.vol);
@@ -137,6 +152,7 @@ function filtered() {
   if (st.age) r = r.filter(x => x.createdAt && Date.now() - x.createdAt <= st.age * 3600e3);
   if (st.safeOnly) r = r.filter(x => x.safety && !x.safety.unavailable && x.safety.grade === 'safe');
   if (st.noBundle) r = r.filter(x => !(x.safety && x.safety.bundled));
+  if (st.ogOnly) r = r.filter(x => x.og && x.og.status === 'og');
   if (st.sort) {
     const get = { price: x => x.priceUsd, age: x => -(x.createdAt || 0), m5: x => x.change?.m5, h1: x => x.change?.h1, h6: x => x.change?.h6, h24: x => x.change?.h24, vol: x => x.volume?.h24, liq: x => x.liquidity, mcap: x => x.mcap || x.fdv, txns: x => (x.txns?.h24?.buys || 0) + (x.txns?.h24?.sells || 0), safety: x => x.safety?.score ?? -1 }[st.sort];
     if (get) r.sort((a, b) => ((get(a) ?? -Infinity) - (get(b) ?? -Infinity)) * st.dir);
@@ -154,7 +170,7 @@ function listPage() {
   <div class="stats" id="stats"></div></section>
   <nav class="tabs">${TABS.map(t => `<button class="tab ${t.id === st.tab ? 'on' : ''}" data-tab="${t.id}">${t.label}${t.id === 'watch' ? ` <span class="chip">${Object.keys(watch).length}</span>` : ''}</button>`).join('')}</nav>
   <div class="bar"><div class="filters">
-    ${tog('safeOnly', '🛡 Safe only')}${tog('noBundle', 'Hide bundled')}
+    ${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${tog('noBundle', 'Hide bundled')}
     ${sel('liq', 'Liq ≥', [[0, 'Any'], [5000, '$5K'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [500000, '$500K']])}
     ${sel('vol', 'Vol 24h ≥', [[0, 'Any'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [1000000, '$1M']])}
     ${sel('mcapMin', 'MCap ≥', [[0, 'Any'], [10000, '$10K'], [100000, '$100K'], [1000000, '$1M'], [10000000, '$10M']])}
@@ -191,7 +207,7 @@ async function load(first) {
     } else {
       const d = await api('/api/list/' + st.tab);
       rows = d.rows; lastUpdated = d.updatedAt;
-      for (const r of rows) if (r.safety) safetyMap[r.mint] = r.safety;
+      for (const r of rows) { if (r.safety) safetyMap[r.mint] = r.safety; if (r.og) ogMap[r.mint] = r.og; }
     }
     draw(); pollSafety();
   } catch (e) {
@@ -199,11 +215,13 @@ async function load(first) {
   }
 }
 async function pollSafety() {
-  const need = rows.slice(0, 150).map(r => r.mint).filter(m => !safetyMap[m]);
+  const need = rows.slice(0, 150).map(r => r.mint).filter(m => !safetyMap[m] || !ogMap[m]);
   if (!need.length) return;
   try {
-    const { safety } = await api('/api/safety?mints=' + need.join(','));
-    let n = 0; for (const [m, s] of Object.entries(safety)) { safetyMap[m] = s; n++; }
+    const { safety, og } = await api('/api/safety?mints=' + need.join(','));
+    let n = 0;
+    for (const [m, s] of Object.entries(safety)) if (!safetyMap[m]) { safetyMap[m] = s; n++; }
+    for (const [m, o] of Object.entries(og || {})) if (!ogMap[m]) { ogMap[m] = o; n++; }
     if (n) draw();
   } catch {}
 }
@@ -223,9 +241,9 @@ function draw() {
   tb.innerHTML = r.slice(0, 200).map((x, i) => {
     const b = x.txns?.h24?.buys, s = x.txns?.h24?.sells, tot = (b || 0) + (s || 0);
     const L = links(x.mint, x.pair);
-    return `<tr data-m="${x.mint}">
+    return `<tr data-m="${x.mint}" class="${x.promo ? 'promoted' : ''}">
       <td class="l"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}" title="Watchlist">${isWatched(x.mint) ? '★' : '☆'}</button></td>
-      <td class="l"><div class="tok">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.boosts ? `<span class="chip boost">⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''}</span></div></div></td>
+      <td class="l"><div class="tok">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''}</span></div></div></td>
       <td class="l"><span class="safe">${badge(x.safety)}${pips(x.safety)}</span></td>
       <td class="mono">${price(x.priceUsd)}</td><td class="mut">${age(x.createdAt)}</td>
       <td>${tot ? `<div class="txbar"><span>${tot.toLocaleString()}</span><span class="b"><i style="width:${(b / tot * 100).toFixed(0)}%"></i></span></div>` : '<span class="dim">—</span>'}</td>
@@ -234,7 +252,7 @@ function draw() {
       <td><a class="buy" href="${L.jup}" target="_blank" rel="noopener" data-stop>Buy</a></td></tr>`;
   }).join('');
   $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c" data-m="${x.mint}">
-      <div class="tok" style="grid-column:1/3">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)}</span></div></div>
+      <div class="tok" style="grid-column:1/3">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)}</span></div></div>
       <div class="pr"><b class="mono">${price(x.priceUsd)}</b>${pct(x.change?.h24 ?? x.change?.h1)}</div>
       <div class="sf"><span class="safe">${badge(x.safety)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button><a class="buy" href="${links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>Buy</a></span></div>
       <div class="meta"><span>Liq <b>${usd(x.liquidity)}</b></span><span>Vol <b>${usd(x.volume?.h24)}</b></span><span>MCap <b>${usd(x.mcap || x.fdv)}</b></span><span>1h ${pct(x.change?.h1)}</span></div></div>`).join('');
@@ -282,13 +300,17 @@ async function tokenPage(mint) {
   const verdict = !sv ? '' : s.grade === 'safe' ? `<div class="verdict g">✓ No major red flags found. Still DYOR — memecoins are high risk.</div>` : s.grade === 'caution' ? `<div class="verdict y">⚠ Some risk factors — review the flags before aping.</div>` : `<div class="verdict r">⛔ High risk — serious red flags detected.</div>`;
   const socials = [...(m.websites || []).map(w => ({ label: w.label || 'Website', url: w.url })), ...(m.socials || []).map(x => ({ label: x.type, url: x.url }))].filter(x => safeUrl(x.url));
   const b24 = m.txns?.h24?.buys, s24 = m.txns?.h24?.sells;
+  const sc = d.scope;
+  const scLinks = sc ? [['Website', sc.website], ['X', sc.twitter], ['Telegram', sc.telegram]].filter(x => safeUrl(x[1])) : [];
   app.innerHTML = `
   <a href="/" data-link class="mut" style="font-size:13px">← Screener</a>
-  <div class="tp-head" style="margin-top:10px">${icon({ icon: d.icon, symbol: d.symbol })}
-    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''}</h1>
+  ${sc && safeUrl(sc.banner) ? `<div class="banner" style="margin-top:10px"><img src="${esc(sc.banner)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></div>` : ''}
+  <div class="tp-head" style="margin-top:10px">${icon({ icon: (sc && safeUrl(sc.logo)) || d.icon, symbol: d.symbol })}
+    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)} ${promoTag(d.promo, true)}</h1>
       <div class="addr"><span>${esc(short(mint))}</span><button class="copy" data-copy="${mint}">Copy CA</button>${m.dex ? `<span class="chip">${esc(m.dex)}</span>` : ''}${s.launchpad ? `<span class="chip">${esc(s.launchpad)}</span>` : ''}${m.createdAt ? `<span class="chip">Pair age ${age(m.createdAt)}</span>` : ''}${socials.map(x => `<a class="chip" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join('')}</div></div>
     <div class="price-big"><b class="mono">${price(m.priceUsd)}</b>${pct(m.change?.h24)} <span class="dim">24h</span></div>
   </div>
+  ${sc ? `<div class="card scopecard"><div class="mut" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${SCOPE_ICO} Project info · submitted by the team, reviewed by TrenchScope</div><p style="margin:0 0 8px;white-space:pre-wrap">${esc(sc.description)}</p>${scLinks.map(([l, u]) => `<a class="chip" href="${esc(u)}" target="_blank" rel="noopener nofollow">${l} ↗</a>`).join(' ')}</div>` : ''}
   <div class="actions">
     <a class="btn pri" href="${L.jup}" target="_blank" rel="noopener">⚡ Buy on Jupiter</a>
     <a class="btn vio" href="${L.photon}" target="_blank" rel="noopener">Trade on Photon</a>
@@ -298,6 +320,7 @@ async function tokenPage(mint) {
     <a class="btn" href="${L.solscan}" target="_blank" rel="noopener">Solscan ↗</a>
     <a class="btn" href="${L.rug}" target="_blank" rel="noopener">RugCheck ↗</a>
     ${d.pump ? `<a class="btn" href="${L.pump}" target="_blank" rel="noopener">pump.fun ↗</a>` : ''}
+    <a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get On the Scope / Boost'}</a>
   </div>
   <div class="kpis">
     <div class="kpi"><small>Market cap</small><b>${usd(m.mcap ?? d.pump?.usdMcap)}</b><span class="dim" style="font-size:12px">FDV ${usd(m.fdv)}</span></div>
@@ -322,6 +345,7 @@ async function tokenPage(mint) {
         <dt>Linked wallet clusters</dt><dd>${s.insiderClusters}</dd><dt>Largest cluster</dt><dd>${s.biggestCluster ? s.biggestCluster + ' wallets' : '—'}</dd>
         <dt>Supply held by clusters</dt><dd>${s.insiderPct != null ? s.insiderPct.toFixed(1) + '%' : '—'}</dd></dl>
         <p class="dim" style="font-size:11px;margin:10px 0 0">Heuristic from RugCheck's wallet transfer graph: groups of wallets funded/linked together that still hold supply. Huge (>200 wallet) graphs are ignored as exchange noise.</p>` : '<div class="mut">Unavailable.</div>'}</div>
+      <div class="card"><h3>👑 OG check <span class="r">name/ticker originality</span></h3>${ogCard(d.og, d.symbol)}</div>
       <div class="card"><h3>👤 Dev wallet</h3>${d.dev ? `<dl class="kv">
         <dt>Creator</dt><dd><a class="mono" style="color:var(--b)" href="https://solscan.io/account/${esc(d.dev.address)}" target="_blank" rel="noopener">${esc(short(d.dev.address))} ↗</a></dd>
         <dt>Holds of supply</dt><dd class="${d.dev.holdingPct > 5 ? 'dn' : ''}">${d.dev.holdingPct != null ? d.dev.holdingPct.toFixed(2) + '%' : '—'}</dd>
@@ -346,6 +370,17 @@ async function tokenPage(mint) {
     initChart(m.pair, m.priceUsd);
     loadTrades(m.pair, d.symbol); const iv = setInterval(() => loadTrades(m.pair, d.symbol), 20000); cleanup.push(() => clearInterval(iv));
   } else $('#trades').innerHTML = '<div class="mut">No pool yet.</div>';
+}
+function ogCard(o, sym) {
+  if (!o) return '<div class="mut">Not checked yet (search sources busy) — reload in a minute.</div>';
+  const note = `<p class="dim" style="font-size:11px;margin:10px 0 0">Compares Solana tokens with the same normalized name (case, spaces, emojis, suffixes like “coin”/“.fun” ignored) or same ticker + overlapping name. OG = earliest first Raydium/PumpSwap pair (pump.fun graduation venue). Only tokens DexScreener search returns are considered (${o.size} found, ${o.graduatedCount} graduated).</p>`;
+  const v = o.status === 'og' ? `<span style="color:var(--gold)">OG — graduated first</span>` : o.status === 'copycat' ? `<span class="dn">Copycat</span>` : '<span class="mut">No graduated token with this name found</span>';
+  return `<dl class="kv"><dt>Verdict</dt><dd>${v}</dd>
+    <dt>This token graduated</dt><dd>${o.gradAt ? dt(o.gradAt) + ' · ' + esc(o.gradDex) : 'Not yet (no Raydium/PumpSwap pair)'}</dd>
+    ${o.status === 'copycat' && o.og ? `<dt>OG token</dt><dd><a href="/token/${o.og.mint}" data-link style="color:var(--gold)">${esc(o.og.symbol)} · ${esc(short(o.og.mint))} ↗</a></dd><dt>OG graduated</dt><dd>${dt(o.og.gradAt)} · ${esc(o.og.gradDex)}</dd>` : ''}
+    ${o.status === 'og' ? `<dt>Copycats found</dt><dd>${o.copycats}</dd>` : ''}
+    ${o.olderNonGraduated ? `<dt>Older non-pump tokens</dt><dd class="mut">${o.olderNonGraduated} traded earlier on other DEXes</dd>` : ''}
+    <dt>Same-name tokens indexed</dt><dd>${o.size}</dd></dl>${note}`;
 }
 async function loadTrades(pool, sym) {
   try {
@@ -384,6 +419,71 @@ function initChart(pool, lastPrice) {
   load(true);
   const iv = setInterval(() => load(false), 45000);
   cleanup.push(() => { clearInterval(iv); chart.remove(); });
+}
+
+// ---------- advertise ----------
+const DS_PRICES = { scope: 299, boost10: 99, boost30: 249, boost100: 899 };
+const DS_HOURS = { boost10: 12, boost30: 12, boost100: 24 };
+async function advertisePage() {
+  document.title = 'Advertise — TrenchScope';
+  const pre = new URLSearchParams(location.search).get('mint') || '';
+  let P; try { P = await api('/api/pricing'); } catch (e) { app.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  const pr = Object.fromEntries(P.products.map(p => [p.id, p]));
+  const sel0 = new URLSearchParams(location.search).get('product') || 'scope';
+  app.innerHTML = `
+  <section class="hero"><div><h1>Advertise on TrenchScope</h1><p>Same placements as DexScreener at a fraction of the price — paid in USDC or SOL with Solana Pay, verified on-chain. Every paid placement is labelled.</p></div></section>
+  <div class="plans">
+    <div class="plan feat"><div class="pn">${SCOPE_ICO} On the Scope</div><div class="pp">$${pr.scope.priceUsd}<small> one-time</small></div><div class="pv">DexScreener Enhanced Token Info: <s>$${DS_PRICES.scope}</s> · save ${Math.round((1 - pr.scope.priceUsd / DS_PRICES.scope) * 100)}%</div>
+      <ul><li>Logo, banner & description on the token page</li><li>Website / X / Telegram links</li><li>“On the Scope” crosshair badge in every table</li><li>Reviewed by us before it goes live (usually &lt; 12h)</li></ul><button class="btn pri" data-pick="scope">Get On the Scope</button></div>
+    ${['boost10', 'boost30', 'boost100'].map(id => `<div class="plan"><div class="pn">⚡ ${pr[id].name}</div><div class="pp">$${pr[id].priceUsd}<small> / ${pr[id].hours}h</small></div><div class="pv">DexScreener ${pr[id].boosts}x: <s>$${DS_PRICES[id]}</s> / ${DS_HOURS[id]}h · save ${Math.round((1 - pr[id].priceUsd / DS_PRICES[id]) * 100)}%</div>
+      <ul><li>Pinned higher in 🔥 Trending, ordered by active boosts</li><li>⚡ “Promoted” label on rows and token page</li><li>Stacks with other boosts</li><li>Starts instantly after on-chain confirmation</li></ul><button class="btn" data-pick="${id}">Boost ${pr[id].boosts}x</button></div>`).join('')}
+  </div>
+  <div class="card" style="margin:16px 0"><h3>Price comparison</h3><div class="scroll"><table style="min-width:560px"><thead><tr><th class="l">Product</th><th>TrenchScope</th><th>DexScreener*</th><th>You save</th></tr></thead><tbody>
+    ${['scope', 'boost10', 'boost30', 'boost100'].map(id => `<tr><td class="l">${id === 'scope' ? 'On the Scope (vs Enhanced Token Info)' : pr[id].name + ' · ' + pr[id].hours + 'h'}</td><td class="up" style="font-weight:700">$${pr[id].priceUsd}</td><td class="mut">$${DS_PRICES[id]}${DS_HOURS[id] ? ' · ' + DS_HOURS[id] + 'h' : ''}</td><td>${Math.round((1 - pr[id].priceUsd / DS_PRICES[id]) * 100)}%</td></tr>`).join('')}
+  </tbody></table></div><p class="dim" style="font-size:11px;margin:10px 0 0">*DexScreener Enhanced Token Info lists at $299. DexScreener only shows boost prices inside its Boost dialog; boost figures here are the commonly reported prices — check dexscreener.com for current pricing. Boosts are not available for tokens our scanner rates high-risk. Payments are non-refundable once a placement is live; rejected On the Scope submissions are refunded to the paying wallet.</p></div>
+  <div class="card" id="orderCard"><h3>Place an order</h3>
+    <form id="orderForm" class="oform">
+      <label>Product<select name="product">${P.products.map(p => `<option value="${p.id}" ${p.id === sel0 ? 'selected' : ''}>${esc(p.name)} — $${p.priceUsd}${p.hours ? ' / ' + p.hours + 'h' : ''}</option>`).join('')}</select></label>
+      <label>Token address (Solana mint)<input name="mint" required value="${esc(pre)}" placeholder="e.g. DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" pattern="[1-9A-HJ-NP-Za-km-z]{32,44}"></label>
+      <div id="scopeFields" class="oform">
+        <label>Logo URL (https, square)<input name="logo" placeholder="https://…/logo.png"></label>
+        <label>Banner URL (https, 3:1)<input name="banner" placeholder="https://…/banner.png"></label>
+        <label class="full">Description<textarea name="description" rows="3" maxlength="600" placeholder="What is the project? (20–600 chars)"></textarea></label>
+        <label>Website<input name="website" placeholder="https://"></label><label>X / Twitter<input name="twitter" placeholder="https://x.com/…"></label>
+        <label>Telegram<input name="telegram" placeholder="https://t.me/…"></label><label>Contact (optional, for review questions)<input name="contact" placeholder="@telegram or email"></label>
+      </div>
+      <button class="btn pri full">Continue to payment →</button><div id="oerr" class="dn full"></div>
+    </form></div>`;
+  const form = $('#orderForm');
+  const sync = () => { $('#scopeFields').style.display = form.product.value === 'scope' ? '' : 'none'; };
+  form.product.onchange = sync; sync();
+  app.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { form.product.value = b.dataset.pick; sync(); $('#orderCard').scrollIntoView({ behavior: 'smooth' }); form.mint.focus(); });
+  form.onsubmit = async e => {
+    e.preventDefault(); $('#oerr').textContent = '';
+    const body = Object.fromEntries(new FormData(form)); const btn = form.querySelector('button.pri'); btn.disabled = true; btn.textContent = 'Creating order…';
+    try {
+      const r = await fetch('/api/orders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error);
+      sessionStorage.setItem('order:' + j.id, JSON.stringify(j.options)); LS.set('orders', [...new Set([j.id, ...LS.get('orders', [])])].slice(0, 20));
+      go('/order/' + j.id);
+    } catch (err) { $('#oerr').textContent = err.message; btn.disabled = false; btn.textContent = 'Continue to payment →'; }
+  };
+}
+async function orderPage(id) {
+  document.title = 'Order — TrenchScope';
+  let qrs = {}; try { (JSON.parse(sessionStorage.getItem('order:' + id)) || []).forEach(o => qrs[o.currency] = o.qr); } catch {}
+  const render = o => {
+    (o.options || []).forEach(op => { if (op.qr) qrs[op.currency] = op.qr; });
+    const names = { scope: 'On the Scope', boost10: '10x Boost', boost30: '30x Boost', boost100: '100x Boost' };
+    const status = { pending: '⏳ Waiting for payment', review: '✅ Paid — under review (usually < 12h)', approved: '✅ Live on the token page', rejected: 'Rejected' + (o.reviewNote ? ': ' + esc(o.reviewNote) : ''), active: `⚡ Boost active until ${new Date(o.endsAt).toLocaleString()}`, expired: 'Expired — no payment received' }[o.status] || o.status;
+    app.innerHTML = `<a href="/advertise" data-link class="mut" style="font-size:13px">← Advertise</a>
+    <section class="hero"><div><h1>${names[o.product] || o.product} · $${o.priceUsd}</h1><p>Token <a href="/token/${o.mint}" data-link class="mono" style="color:var(--b)">${short(o.mint)}</a> · order <span class="mono">${o.id}</span></p></div></section>
+    <div class="card" style="margin-bottom:16px"><b style="font-size:16px">${status}</b>${o.payment ? `<p class="mut" style="margin:6px 0 0">Received ${o.payment.amount} ${o.payment.currency} · <a style="color:var(--b)" target="_blank" rel="noopener" href="https://solscan.io/tx/${esc(o.payment.signature)}">view transaction ↗</a></p>` : ''}</div>
+    ${o.status === 'pending' ? `<div class="plans">${o.options.map(op => `<div class="plan" style="text-align:center"><div class="pn">Pay with ${op.currency}</div><div class="pp" style="font-size:22px">${op.amount} ${op.currency}</div>${qrs[op.currency] ? `<img src="${qrs[op.currency]}" width="220" height="220" style="border-radius:12px;background:#fff;margin:10px auto;display:block" alt="Solana Pay QR">` : ''}<a class="btn pri" href="${esc(op.url)}">Open in wallet</a><p class="dim" style="font-size:11px">Scan with Phantom/Solflare/Backpack. ${op.currency === 'SOL' ? 'SOL quote valid for 1 hour.' : 'Exact USDC amount or more.'}</p></div>`).join('')}</div>
+      <p class="mut" style="font-size:12px">Payments go to <span class="mono">${esc(o.recipient)}</span> and are verified on-chain automatically — this page checks every 10 seconds. Keep this link: <span class="mono">${location.href}</span></p>` : ''}`;
+  };
+  const tick = async () => { try { const o = await api('/api/orders/' + id); render(o); if (o.status !== 'pending') clearInterval(iv); } catch (e) { app.innerHTML = `<div class="err">${esc(e.message)}</div>`; clearInterval(iv); } };
+  const iv = setInterval(tick, 10000); cleanup.push(() => clearInterval(iv)); tick();
 }
 
 route();

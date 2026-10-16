@@ -3,6 +3,10 @@ const express = require('express');
 const compression = require('compression');
 const path = require('path');
 const { scoreReport } = require('./lib/safety');
+const { createOG } = require('./lib/og');
+const pay = require('./lib/payments');
+const crypto = require('crypto');
+const QRCode = require('qrcode');
 
 const PORT = process.env.PORT || 3000;
 const RPC = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
@@ -214,6 +218,17 @@ async function worker() {
 }
 setInterval(() => { while (workers < 2 && safetyQ.length) worker(); }, 300).unref();
 
+// ---------- OG / copycat queue ----------
+const og = createOG({ getJSON, cached, file: process.env.OG_CACHE_FILE || path.join(__dirname, 'data', 'og-cache.json') });
+const ogQ = []; const ogQueued = new Set(); let ogBusy = false;
+function enqueueOG(rows) { for (const r of rows) if (r && r.mint && r.name && !ogQueued.has(r.mint) && !og.peek(r.mint)) { ogQueued.add(r.mint); ogQ.push({ mint: r.mint, name: r.name, symbol: r.symbol }); } }
+setInterval(async () => {
+  if (ogBusy || !ogQ.length) return; ogBusy = true;
+  const t = ogQ.shift();
+  try { if (!og.peek(t.mint)) await og.check(t); } catch {} finally { ogQueued.delete(t.mint); ogBusy = false; }
+}, 250).unref();
+const withIntel = (r, boosts = pay.activeBoosts(), scoped = pay.scopedMints()) => ({ ...r, safety: peekSafety(r.mint) || null, og: og.peek(r.mint) || null, promo: boosts[r.mint] || 0, scope: scoped.has(r.mint) });
+
 // ---------- Solana RPC ----------
 async function rpc(method, params) {
   const d = await getJSON(RPC, { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
@@ -233,16 +248,25 @@ app.get('/api/list/:kind', async (req, res) => {
   const fn = lists[req.params.kind];
   if (!fn) return fail(res, new Error('unknown list'), 404);
   try {
-    const rows = await fn();
-    enqueue(rows.slice(0, 120).map(r => r.mint));
-    ok(res, { updatedAt: store.get('list:' + req.params.kind)?.at || Date.now(), rows: rows.map(r => ({ ...r, safety: peekSafety(r.mint) || null })) });
+    let rows = await fn();
+    const boosts = pay.activeBoosts(), scoped = pay.scopedMints();
+    if (req.params.kind === 'trending') {
+      // paid boosts raise ranking: promoted tokens are pinned on top (ordered by active boosts) and clearly labelled
+      const missing = Object.keys(boosts).filter(m => !rows.some(r => r.mint === m));
+      if (missing.length) { const ds = await dexTokens(missing); rows = [...[...ds.values()].map(fromDex), ...rows]; }
+      rows = rows.map((r, i) => ({ r, i })).sort((a, b) => (boosts[b.r.mint] || 0) - (boosts[a.r.mint] || 0) || a.i - b.i).map(x => x.r);
+    }
+    enqueue(rows.slice(0, 120).map(r => r.mint)); enqueueOG(rows.slice(0, 120));
+    res.set('Cache-Control', 'no-cache');
+    res.json({ updatedAt: store.get('list:' + req.params.kind)?.at || Date.now(), rows: rows.map(r => withIntel(r, boosts, scoped)) });
   } catch (e) { fail(res, e); }
 });
 app.get('/api/safety', (req, res) => {
   const mints = String(req.query.mints || '').split(',').filter(isMint).slice(0, 200);
   enqueue(mints);
-  const out = {}; for (const m of mints) { const s = peekSafety(m); if (s) out[m] = s; }
-  ok(res, { safety: out, pending: safetyQ.length }, 5);
+  const out = {}, ogOut = {};
+  for (const m of mints) { const s = peekSafety(m); if (s) out[m] = s; const o = og.peek(m); if (o) ogOut[m] = o; }
+  ok(res, { safety: out, og: ogOut, pending: safetyQ.length, ogPending: ogQ.length }, 5);
 });
 app.get('/api/search', async (req, res) => {
   const q = String(req.query.q || '').trim().slice(0, 80);
@@ -254,8 +278,8 @@ app.get('/api/search', async (req, res) => {
       const c = m.get(p.baseToken.address); if (!c || (p.liquidity?.usd || 0) > (c.liquidity?.usd || 0)) m.set(p.baseToken.address, p);
     }
     const rows = [...m.values()].map(fromDex).slice(0, 20);
-    enqueue(rows.map(r => r.mint));
-    ok(res, { rows: rows.map(r => ({ ...r, safety: peekSafety(r.mint) || null })) }, 30);
+    enqueue(rows.map(r => r.mint)); enqueueOG(rows);
+    ok(res, { rows: rows.map(r => withIntel(r)) }, 30);
   } catch (e) { fail(res, e); }
 });
 app.get('/api/token/:mint', async (req, res) => {
@@ -275,6 +299,8 @@ app.get('/api/token/:mint', async (req, res) => {
         if (g.data?.[0]) main = fromGecko(g.data[0]);
       } catch {}
     }
+    const ident = { mint, name: main?.name || safety?.name || pump?.name, symbol: main?.symbol || safety?.symbol || pump?.symbol };
+    const ogInfo = ident.name ? await Promise.race([og.check(ident).catch(() => null), new Promise(r => setTimeout(() => r(null), 15000))]) : null;
     let dev = null;
     const creator = safety?.creator || pump?.creator;
     if (creator) {
@@ -284,7 +310,8 @@ app.get('/api/token/:mint', async (req, res) => {
     const pumpInfo = pump ? { complete: !!pump.complete, replies: pump.reply_count ?? null, createdAt: pump.created_timestamp, usdMcap: num(pump.usd_market_cap), description: pump.description || null, image: pump.image_uri || null } : null;
     if (!main && !pump && safety?.unavailable) return fail(res, new Error('Token not found on any data source'), 404);
     ok(res, {
-      mint, main, pairs: sol.slice(0, 8).map(fromDex), safety, dev, pump: pumpInfo,
+      mint, main, pairs: sol.slice(0, 8).map(fromDex), safety, dev, pump: pumpInfo, og: ogInfo,
+      scope: pay.scopeInfo(mint), promo: pay.activeBoosts()[mint] || 0,
       name: main?.name || safety?.name || pump?.name, symbol: main?.symbol || safety?.symbol || pump?.symbol,
       icon: main?.icon || pump?.image_uri || null,
     }, 20);
@@ -321,16 +348,68 @@ app.get('/api/prices', async (req, res) => {
     ok(res, { prices: out }, 10);
   } catch (e) { fail(res, e); }
 });
-app.get('/api/health', (req, res) => res.json({ ok: true, queue: safetyQ.length, cacheEntries: store.size }));
+// ---------- monetization: On the Scope + Boosts (Solana Pay) ----------
+app.use('/api/orders', express.json({ limit: '20kb' }));
+app.use('/api/admin', express.json({ limit: '5kb' }));
+app.get('/api/pricing', (req, res) => ok(res, { recipient: pay.RECIPIENT, products: Object.values(pay.PRODUCTS) }, 300));
+const httpsUrl = (v, max = 300) => { if (!v) return null; const t = String(v).trim().slice(0, max); try { const u = new URL(t); return u.protocol === 'https:' ? u.toString() : false; } catch { return false; } };
+app.post('/api/orders', async (req, res) => {
+  try {
+    const { product, mint } = req.body || {};
+    if (!pay.PRODUCTS[product]) return fail(res, new Error('Unknown product'), 400);
+    if (!isMint(mint)) return fail(res, new Error('Invalid token address'), 400);
+    const pairs = await cached('dsp:' + mint, 30e3, () => getJSON(`https://api.dexscreener.com/tokens/v1/solana/${mint}`)).catch(() => []);
+    if (!(pairs || []).some(p => p.baseToken?.address === mint)) return fail(res, new Error('Token has no Solana trading pair indexed yet'), 400);
+    let details = {};
+    if (product === 'scope') {
+      const b = req.body;
+      const f = { logo: httpsUrl(b.logo), banner: httpsUrl(b.banner), website: httpsUrl(b.website), twitter: httpsUrl(b.twitter), telegram: httpsUrl(b.telegram) };
+      for (const [k, v] of Object.entries(f)) if (v === false) return fail(res, new Error(`${k} must be an https:// URL`), 400);
+      if (!f.logo) return fail(res, new Error('Logo URL is required'), 400);
+      const description = String(b.description || '').trim().slice(0, 600);
+      if (description.length < 20) return fail(res, new Error('Description must be at least 20 characters'), 400);
+      details = { ...f, description, contact: String(b.contact || '').trim().slice(0, 100) };
+    } else {
+      // we don't sell visibility to tokens our own scanner rates high-risk
+      const sf = await safetyFor(mint).catch(() => null);
+      if (sf && !sf.unavailable && sf.grade === 'danger') return fail(res, new Error(`Boosts are not available for tokens with a high-risk safety score (${sf.score}/100)`), 400);
+    }
+    res.json(await pay.createOrder(product, mint, details));
+  } catch (e) { fail(res, e); }
+});
+app.get('/api/orders/:id', async (req, res) => {
+  try {
+    const o = await pay.checkOrder(String(req.params.id)); if (!o) return fail(res, new Error('Order not found'), 404);
+    if (o.status === 'pending') for (const op of o.options) op.qr = await QRCode.toDataURL(op.url, { margin: 1, width: 240 }); res.set('Cache-Control', 'no-store'); res.json(o); }
+  catch (e) { fail(res, e); }
+});
+const ADMIN = process.env.ADMIN_PASSWORD || '';
+const adminFails = new Map();
+function admin(req, res, next) {
+  if (!ADMIN) return fail(res, new Error('Admin disabled: set ADMIN_PASSWORD'), 503);
+  const ip = req.ip; const f = adminFails.get(ip) || { n: 0, t: 0 };
+  if (f.n >= 10 && Date.now() - f.t < 15 * 60e3) return fail(res, new Error('Too many attempts, try later'), 429);
+  const a = Buffer.from(String(req.get('x-admin-password') || '')), b = Buffer.from(ADMIN);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) { adminFails.set(ip, { n: f.n + 1, t: Date.now() }); return fail(res, new Error('Wrong password'), 401); }
+  adminFails.delete(ip); next();
+}
+app.get('/api/admin/orders', admin, (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ orders: pay.allOrders() }); });
+app.post('/api/admin/orders/:id/:action(approve|reject)', admin, (req, res) => {
+  try { res.json(pay.review(req.params.id, req.params.action === 'approve', req.body?.note)); } catch (e) { fail(res, e, 400); }
+});
+app.post('/api/admin/orders/:id/recheck', admin, async (req, res) => { try { res.json(await pay.checkOrder(req.params.id)); } catch (e) { fail(res, e); } });
+
+app.get('/api/health', (req, res) => res.json({ ok: true, queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, cacheEntries: store.size }));
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
-app.get(/^\/(token\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get(/^\/(token\/.*|advertise|order\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 if (require.main === module) {
   app.listen(PORT, () => console.log(`TrenchScope on http://localhost:${PORT}`));
   // warm caches so the first visitor sees data and safety scores
-  const warm = () => Promise.allSettled(Object.keys(lists).map(k => lists[k]().then(r => enqueue(r.slice(0, 80).map(x => x.mint)))));
+  const warm = () => Promise.allSettled(Object.keys(lists).map(k => lists[k]().then(r => { enqueue(r.slice(0, 80).map(x => x.mint)); enqueueOG(r.slice(0, 80)); })));
   warm(); setInterval(warm, 90e3).unref();
 }
 module.exports = { app };

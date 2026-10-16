@@ -1,3 +1,5 @@
 node_modules
 *.log
 .env
+data/og-cache.json
+data/orders.json

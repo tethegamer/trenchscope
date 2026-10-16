@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>TrenchScope admin</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css">
+<style>main{max-width:1100px}.o{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}.o img{max-height:80px;border-radius:8px;margin:6px 6px 0 0;background:#000}
+.st{font-weight:800;text-transform:uppercase;font-size:11px;padding:2px 8px;border-radius:6px;background:var(--card2)}.st.review{color:var(--y)}.st.approved,.st.active{color:var(--g)}.st.rejected,.st.expired{color:var(--r)}
+input{background:var(--bg2);border:1px solid var(--line2);border-radius:9px;color:var(--tx);padding:10px;font:14px Inter}</style></head>
+<body><main><h1>TrenchScope admin</h1>
+<form id="login" style="display:flex;gap:8px"><input type="password" id="pw" placeholder="ADMIN_PASSWORD" autocomplete="current-password"><button class="btn pri">Unlock</button></form>
+<p id="err" class="dn"></p><div id="list"></div></main>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let pw = sessionStorage.getItem('ts-admin') || '';
+const call = async (p, method = 'GET', body) => { const r = await fetch(p, { method, headers: { 'x-admin-password': pw, 'content-type': 'application/json' }, body: body && JSON.stringify(body) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; };
+async function load() {
+  try {
+    const { orders } = await call('/api/admin/orders'); sessionStorage.setItem('ts-admin', pw); document.getElementById('login').style.display = 'none'; document.getElementById('err').textContent = '';
+    const review = orders.filter(o => o.status === 'review');
+    document.getElementById('list').innerHTML = `<p class="mut">${review.length} awaiting review · ${orders.length} orders total</p>` + orders.map(o => {
+      const d = o.details || {};
+      return `<div class="o"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="st ${o.status}">${o.status}</span><b>${esc(o.product)}</b> $${o.priceUsd}
+        <a class="mono" style="color:var(--b)" href="/token/${esc(o.mint)}" target="_blank">${esc(o.mint)}</a><span class="dim">${new Date(o.created).toLocaleString()}</span>
+        ${o.payment ? `<a style="color:var(--g)" target="_blank" href="https://solscan.io/tx/${esc(o.payment.signature)}">paid ${o.payment.amount} ${o.payment.currency} ↗</a>` : `<span class="dim">unpaid${o.lastError ? ' · ' + esc(o.lastError) : ''}</span>`}</div>
+        ${o.product === 'scope' ? `<div style="margin-top:8px">${d.logo ? `<img src="${esc(d.logo)}" referrerpolicy="no-referrer">` : ''}${d.banner ? `<img src="${esc(d.banner)}" referrerpolicy="no-referrer">` : ''}
+          <p style="white-space:pre-wrap">${esc(d.description)}</p><p class="mut" style="font-size:12px">${['website','twitter','telegram'].map(k => d[k] ? `${k}: <a style="color:var(--b)" href="${esc(d[k])}" target="_blank" rel="noopener nofollow">${esc(d[k])}</a>` : '').filter(Boolean).join(' · ')}${d.contact ? ' · contact: ' + esc(d.contact) : ''}</p></div>` : ''}
+        <div style="display:flex;gap:8px;margin-top:8px">${o.status === 'review' ? `<button class="btn pri" data-a="approve" data-id="${o.id}">Approve</button><button class="btn" data-a="reject" data-id="${o.id}">Reject</button>` : ''}${o.status === 'pending' ? `<button class="btn" data-a="recheck" data-id="${o.id}">Re-check payment</button>` : ''}</div></div>`;
+    }).join('');
+    document.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+      const note = b.dataset.a === 'reject' ? prompt('Reason (shown to buyer):') : undefined;
+      try { await call(`/api/admin/orders/${b.dataset.id}/${b.dataset.a}`, 'POST', { note }); load(); } catch (e) { alert(e.message); }
+    });
+  } catch (e) { document.getElementById('err').textContent = e.message; document.getElementById('login').style.display = 'flex'; }
+}
+document.getElementById('login').onsubmit = e => { e.preventDefault(); pw = document.getElementById('pw').value; load(); };
+if (pw) load();
+</script></body></html>

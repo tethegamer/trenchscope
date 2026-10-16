@@ -7,19 +7,26 @@
 <meta name="description" content="Live Solana pairs with a safety score on every row: mint/freeze authority, LP lock, holder concentration, dev wallet and bundle detection. Watchlist and price alerts built in.">
 <meta name="theme-color" content="#07090d">
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta property="og:type" content="website"><meta property="og:title" content="TrenchScope — Solana screener with safety on every row">
+<meta property="og:description" content="Rug checks, dev wallets, bundle flags, OG vs copycat tags, watchlist & alerts for every Solana pair.">
+<meta property="og:image" content="/og-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="/og-image.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="/" data-link><img src="/logo.svg" alt="" width="28" height="28"><span>Trench<b>Scope</b></span></a>
+  <a class="brand" href="/" data-link><img src="/logo.svg" alt="TrenchScope logo" width="30" height="30"><span>Trench<b>Scope</b></span></a>
   <form class="search" id="searchForm" autocomplete="off">
     <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M10 2a8 8 0 0 1 6.32 12.9l5.39 5.4-1.41 1.4-5.4-5.39A8 8 0 1 1 10 2Zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"/></svg>
     <input id="q" placeholder="Search token name, ticker or paste mint…" spellcheck="false">
     <kbd>/</kbd>
     <div class="results" id="results" hidden></div>
   </form>
+  <a class="navlink" href="/advertise" data-link>Advertise</a>
   <button class="iconbtn" id="alertsBtn" title="Price alerts"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3a1.5 1.5 0 0 0-3 0v1.16A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg><i id="alertCount" hidden></i></button>
 </header>
 <main id="app"></main>
