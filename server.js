@@ -234,7 +234,7 @@ async function worker() {
 }
 setInterval(() => { while (workers < 2 && safetyQ.length) worker(); }, 300).unref();
 
-// ---------- OG / copycat queue ----------
+// ---------- OG / VAMP queue ----------
 const og = createOG({ getJSON: (u, o = {}) => getJSON(u, { ...o, prio: PRIO.low }), cached, file: process.env.OG_CACHE_FILE || path.join(__dirname, 'data', 'og-cache.json') });
 const ogQ = []; const ogQueued = new Set(); let ogBusy = false;
 function enqueueOG(rows) { for (const r of rows) if (r && r.mint && r.name && !ogQueued.has(r.mint) && !og.peek(r.mint)) { ogQueued.add(r.mint); ogQ.push({ mint: r.mint, name: r.name, symbol: r.symbol }); } }
@@ -373,7 +373,7 @@ app.get('/api/ohlcv/:pool', async (req, res) => {
 // sample mcap of vamps and their OGs every 10 min (one DexScreener batch per 30 tokens, low priority)
 async function sampleVampMcaps() {
   const mints = new Set();
-  for (const [m, r] of Object.entries(og.db.results)) if (r.status === 'copycat' && r.og && Date.now() - r.checkedAt < 48 * 3600e3) { mints.add(m); mints.add(r.og.mint); }
+  for (const [m, r] of Object.entries(og.db.results)) if (r.status === 'vamp' && r.og && Date.now() - r.checkedAt < 48 * 3600e3) { mints.add(m); mints.add(r.og.mint); }
   const list = [...mints].slice(0, 300);
   for (let i = 0; i < list.length; i += 30) {
     const chunk = list.slice(i, i + 30);

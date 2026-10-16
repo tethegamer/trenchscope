@@ -43,7 +43,7 @@ When a coin pumps, vamps relaunch the same name/ticker. TrenchScope finds every 
 - **Same identity:** same normalized name, or same ticker AND one name contains the other (so `Streamflow` ≠ `streamoors` even though both are `STREAM`).
 - **Candidates:** DexScreener search by name and by ticker, then *all* pairs of every candidate via `/tokens/v1`.
 - **Graduation time:** earliest Raydium or PumpSwap pair (`pairCreatedAt`) — where pump.fun coins migrate when the curve completes. Earliest graduate = OG.
-- A same-name token that never graduated but traded earlier on another DEX (e.g. a Meteora launch) is **not** called a vamp; the OG card notes it.
+- Only migrated tokens are tagged: anything still on the pump.fun bonding curve (no PumpSwap/Raydium pair) gets no OG/VAMP tag.
 - **VV (Valid Vamp):** a VAMP whose smoothed market cap (median of ≥3 samples over 4h, spanning ≥1h) is ≥5x the OG's and that is ≥24h old gets a green/gold **VV** chip (“Valid Vamp: flipped the OG 5x+”); the OG page shows “Flipped by …”. Dynamic — lost when it falls back under 5x. Mcap samples come from list refreshes and a 10-min background sampler.
 - Results are cached persistently in `data/og-cache.json` (6h TTL) and computed in a background queue.
 - Real example (verified 16 Oct 2026): trending **FTR “Flying Tesla Roadster”** (`DFMt…pump`, PumpSwap 14 Oct) is marked **Vamp of FTR `3w5c…`**, which had a Raydium pair since 14 Aug 2026.

@@ -59,13 +59,13 @@ const SCOPE_ICO = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="
 const scopeTag = big => `<span class="chip scope" title="On the Scope: the project paid for an enhanced profile and TrenchScope reviewed the submitted info. This is a paid listing, not an endorsement — always check the safety score.">${SCOPE_ICO}${big ? ' On the Scope' : ''}</span>`;
 const promoTag = (n, big) => n ? `<span class="chip promo" title="Promoted: ${n} paid boosts active on TrenchScope. Paid placement — ranking raised in Trending.">⚡${big ? ' Promoted · ' : ''}${n}${big ? ' boosts' : ''}${big ? '' : ' AD'}</span>` : '';
 
-// ---------- OG / copycat ----------
+// ---------- OG / VAMP ----------
 const dt = ts => ts ? new Date(ts).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?';
 function ogTag(o, big) {
   if (!o) return '';
-  if (o.status === 'og') return `<span class="chip og" title="${esc(`OG: first token with this name/ticker to graduate — earliest ${o.gradDex} pair ${dt(o.gradAt)}. ${o.copycats ? o.copycats + ' later vamp(s) reuse the name.' : 'No vamps found.'}${o.olderNonGraduated ? ' Note: ' + o.olderNonGraduated + ' same-name token(s) traded earlier on other DEXes without graduating.' : ''} Based on DexScreener-indexed pairs only.`)}">OG${big && o.copycats ? ` · ${o.copycats} vamp${o.copycats > 1 ? 's' : ''}` : ''}</span>`;
+  if (o.status === 'og') return `<span class="chip og" title="${esc(`OG: first token with this name/ticker to graduate — earliest ${o.gradDex} pair ${dt(o.gradAt)}. ${o.vamps ? o.vamps + ' later vamp(s) reuse the name.' : 'No vamps found.'}${o.olderNonGraduated ? ' Note: ' + o.olderNonGraduated + ' same-name token(s) traded earlier on other DEXes without graduating.' : ''} Based on DexScreener-indexed pairs only.`)}">OG${big && o.vamps ? ` · ${o.vamps} vamp${o.vamps > 1 ? 's' : ''}` : ''}</span>`;
   const vvChip = o.vv ? `<span class="chip vv" title="${esc(`Valid Vamp: flipped the OG 5x+ — smoothed (4h median) market cap ${o.ratio.toFixed(1)}x ${o.og.symbol}'s, and at least 24h old. Lost if it falls back under 5x.`)}">VV${big ? ' · Valid Vamp ' + o.ratio.toFixed(1) + 'x' : ''}</span>` : '';
-  if (o.status === 'copycat' && o.og) return vvChip + `<a class="chip copy" href="/token/${o.og.mint}" data-link data-stop title="${esc(`Vamp: reused a name that already graduated earlier — ${o.og.symbol} (${short(o.og.mint)}) graduated first (${o.og.gradDex}, ${dt(o.og.gradAt)})${o.gradAt ? '; this one graduated ' + dt(o.gradAt) : '; this one has not graduated'}. Click to open the OG. Based on DexScreener-indexed pairs only.`)}">${big ? 'Vamp of ' + esc(o.og.symbol) + ' ↗' : 'VAMP'}</a>`;
+  if (o.status === 'vamp' && o.og) return vvChip + `<a class="chip vamp" href="/token/${o.og.mint}" data-link data-stop title="${esc(`Vamp: reused a name that already graduated earlier — ${o.og.symbol} (${short(o.og.mint)}) graduated first (${o.og.gradDex}, ${dt(o.og.gradAt)})${o.gradAt ? '; this one graduated ' + dt(o.gradAt) : '; this one has not graduated'}. Click to open the OG. Based on DexScreener-indexed pairs only.`)}">${big ? 'Vamp of ' + esc(o.og.symbol) + ' ↗' : 'VAMP'}</a>`;
   return '';
 }
 
@@ -306,7 +306,7 @@ async function tokenPage(mint) {
   <a href="/" data-link class="mut" style="font-size:13px">← Screener</a>
   ${sc && safeUrl(sc.banner) ? `<div class="banner" style="margin-top:10px"><img src="${esc(sc.banner)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></div>` : ''}
   <div class="tp-head" style="margin-top:10px">${icon({ icon: (sc && safeUrl(sc.logo)) || d.icon, symbol: d.symbol })}
-    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)}${d.og && d.og.status !== 'none' ? glossLink : ''}${d.flippedBy?.length ? `<span class="chip copy" title="Valid Vamp(s) have 5x+ this token's smoothed market cap">Flipped by ${esc(d.flippedBy[0].symbol || short(d.flippedBy[0].mint))}</span>` : ''} ${promoTag(d.promo, true)}</h1>
+    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)}${d.og && d.og.status !== 'none' ? glossLink : ''}${d.flippedBy?.length ? `<span class="chip vamp" title="Valid Vamp(s) have 5x+ this token's smoothed market cap">Flipped by ${esc(d.flippedBy[0].symbol || short(d.flippedBy[0].mint))}</span>` : ''} ${promoTag(d.promo, true)}</h1>
       <div class="addr"><span>${esc(short(mint))}</span><button class="copy" data-copy="${mint}">Copy CA</button>${m.dex ? `<span class="chip">${esc(m.dex)}</span>` : ''}${s.launchpad ? `<span class="chip">${esc(s.launchpad)}</span>` : ''}${m.createdAt ? `<span class="chip">Pair age ${age(m.createdAt)}</span>` : ''}${socials.map(x => `<a class="chip" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join('')}</div></div>
     <div class="price-big" id="pbig" role="button" tabindex="0" title="Tap to switch Price ⇄ Market cap"></div>
   </div>
@@ -381,12 +381,12 @@ async function tokenPage(mint) {
 function ogCard(o, sym, flipped) {
   if (!o) return '<div class="mut">Not checked yet (search sources busy) — reload in a minute.</div>';
   const note = `<p class="dim" style="font-size:11px;margin:10px 0 0">Compares Solana tokens with the same normalized name (case, spaces, emojis, suffixes like “coin”/“.fun” ignored) or same ticker + overlapping name. OG = earliest first Raydium/PumpSwap pair (pump.fun graduation venue). Only tokens DexScreener search returns are considered (${o.size} found, ${o.graduatedCount} graduated).</p>`;
-  const v = o.status === 'og' ? `<span style="color:var(--gold)">OG — graduated first</span>` : o.status === 'copycat' ? `<span class="dn">VAMP — reused a name that already graduated earlier</span>` : '<span class="mut">No graduated token with this name found</span>';
+  const v = o.status === 'og' ? `<span style="color:var(--gold)">OG — graduated first</span>` : o.status === 'vamp' ? `<span class="dn">VAMP — reused a name that already graduated earlier</span>` : '<span class="mut">No graduated token with this name found</span>';
   return `<dl class="kv"><dt>Verdict</dt><dd>${v}</dd>
     <dt>This token graduated</dt><dd>${o.gradAt ? dt(o.gradAt) + ' · ' + esc(o.gradDex) : 'Not yet (no Raydium/PumpSwap pair)'}</dd>
-    ${o.status === 'copycat' && o.og ? `<dt>OG token</dt><dd><a href="/token/${o.og.mint}" data-link style="color:var(--gold)">${esc(o.og.symbol)} · ${esc(short(o.og.mint))} ↗</a></dd><dt>OG graduated</dt><dd>${dt(o.og.gradAt)} · ${esc(o.og.gradDex)}</dd>` : ''}
-    ${o.status === 'og' ? `<dt>Vamps found</dt><dd>${o.copycats}</dd>` : ''}
-    ${o.status === 'copycat' ? `<dt>Valid Vamp (VV)</dt><dd>${o.vv ? `<span class="up">Yes — ${o.ratio.toFixed(1)}x the OG</span>` : o.ratio ? `No — ${o.ratio.toFixed(2)}x the OG${o.ageOk ? '' : ', under 24h old'}` : 'Not enough mcap history yet'}</dd>` : ''}
+    ${o.status === 'vamp' && o.og ? `<dt>OG token</dt><dd><a href="/token/${o.og.mint}" data-link style="color:var(--gold)">${esc(o.og.symbol)} · ${esc(short(o.og.mint))} ↗</a></dd><dt>OG graduated</dt><dd>${dt(o.og.gradAt)} · ${esc(o.og.gradDex)}</dd>` : ''}
+    ${o.status === 'og' ? `<dt>Vamps found</dt><dd>${o.vamps}</dd>` : ''}
+    ${o.status === 'vamp' ? `<dt>Valid Vamp (VV)</dt><dd>${o.vv ? `<span class="up">Yes — ${o.ratio.toFixed(1)}x the OG</span>` : o.ratio ? `No — ${o.ratio.toFixed(2)}x the OG${o.ageOk ? '' : ', under 24h old'}` : 'Not enough mcap history yet'}</dd>` : ''}
     ${flipped?.length ? `<dt>Flipped by</dt><dd>${flipped.map(f => `<a href="/token/${f.mint}" data-link class="chip vv">${esc(f.symbol || short(f.mint))} ${f.ratio.toFixed(1)}x</a>`).join(' ')}</dd>` : ''}
     ${o.olderNonGraduated ? `<dt>Older non-pump tokens</dt><dd class="mut">${o.olderNonGraduated} traded earlier on other DEXes</dd>` : ''}
     <dt>Same-name tokens indexed</dt><dd>${o.size}</dd></dl>${note}`;
@@ -524,9 +524,10 @@ function glossary(force) {
   $('#gloss')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" id="gloss"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="glT">
     <h2 id="glT">Quick glossary</h2>
-    <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate the bonding curve.</dd>
-    <dt><span class="chip copy">VAMP</span></dt><dd>A later launch reusing an OG's name.</dd>
+    <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate the bonding curve (migrate to PumpSwap/Raydium).</dd>
+    <dt><span class="chip vamp">VAMP</span></dt><dd>A later launch reusing an OG's name that has also graduated.</dd>
     <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 5x+ the OG's. It can lose the badge if it drops back under 5x.</dd></dl>
+    <p class="dim" style="font-size:12px;margin:-6px 0 16px">Tokens still on the pump.fun bonding curve get no OG/VAMP tag.</p>
     <div class="mbtns"><button class="btn" id="glNo">Don't show again</button><button class="btn pri" id="glOk">Okay</button></div></div></div>`);
   const close = () => $('#gloss')?.remove();
   $('#glOk').onclick = () => { sessionStorage.setItem('ts:glossarySeen', '1'); close(); };

@@ -129,7 +129,7 @@ tbody tr{cursor:pointer;transition:background .1s}tbody tr:hover{background:var(
 }
 
 .chip.og{color:#1a1200;background:linear-gradient(135deg,#ffe08a,#f5c542 55%,#d99a1e);border-color:#f5c542;box-shadow:0 0 10px rgba(245,197,66,.25);letter-spacing:.04em}
-.chip.copy{color:#ff8fa3;border-color:rgba(255,77,106,.35);background:rgba(255,77,106,.08)}
+.chip.vamp{color:#ff8fa3;border-color:rgba(255,77,106,.35);background:rgba(255,77,106,.08)}
 .tp-head h1 .chip{font-size:11px;padding:3px 8px}
 
 .chip.scope{color:#7fe3ff;border-color:rgba(127,227,255,.4);background:rgba(127,227,255,.08);display:inline-flex;align-items:center;gap:3px}

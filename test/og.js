@@ -16,7 +16,7 @@ console.log('✓ normalize / sameIdentity');
   const { createOG } = require('../lib/og');
   const o = createOG({ getJSON: async () => ({}), cached: async (k, t, f) => f(), file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vv-')), 'og.json') });
   const H = 3600e3, now = Date.now(), OG = 'OGmint1111111111111111111111111111', V = 'Vamp11111111111111111111111111111';
-  const rec = { status: 'copycat', og: { mint: OG, symbol: 'OG' }, firstSeen: now - 30 * H };
+  const rec = { status: 'vamp', og: { mint: OG, symbol: 'OG' }, firstSeen: now - 30 * H };
   const feed = (m, vals) => vals.forEach((v, i) => o.sample(m, v, now - (vals.length - 1 - i) * 30 * 60e3));
   feed(OG, [1e6, 1e6, 1e6, 1e6]);
   feed(V, [2e6, 2e6, 2e6, 40e6]);                 // one 40x spike can't fake it (median)
@@ -43,13 +43,13 @@ const srv = app.listen(0, async () => {
   const base = `http://localhost:${srv.address().port}`;
   try {
     // Real example (verified 2026-10-16): "Flying Tesla Roadster" (FTR) — DFMt…pump graduated to PumpSwap on 2026-10-14,
-    // but 3w5c… had a Raydium pair since 2026-08-14, so DFMt is a copycat.
+    // but 3w5c… had a Raydium pair since 2026-08-14, so DFMt is a vamp.
     const d = await (await fetch(base + '/api/token/DFMt2FyLpB6ekPNAzVErLXgpSnJ9CRf1VnxBAkTLpump')).json();
     console.log('FTR (DFMt):', d.og?.status, '→ OG', d.og?.og?.symbol, d.og?.og?.mint, new Date(d.og?.og?.gradAt).toISOString());
-    assert.equal(d.og.status, 'copycat');
+    assert.equal(d.og.status, 'vamp');
     const o = await (await fetch(base + '/api/token/' + d.og.og.mint)).json();
-    console.log('OG token:', o.symbol, o.og?.status, 'copycats:', o.og?.copycats);
+    console.log('OG token:', o.symbol, o.og?.status, 'vamps:', o.og?.vamps);
     assert.equal(o.og.status, 'og');
-    console.log('✓ live OG/copycat'); process.exit(0);
+    console.log('✓ live OG/VAMP'); process.exit(0);
   } catch (e) { console.error('✗', e.message); process.exit(1); }
 });
