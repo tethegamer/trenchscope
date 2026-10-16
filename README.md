@@ -23,7 +23,7 @@ DexScreener shows you charts. TrenchScope shows you charts **plus a safety score
 | Dev wallet intel | ❌ | ✅ creator, % of supply held, SOL balance |
 | Bundle / sniper heuristic | ❌ | ✅ linked-wallet clusters from RugCheck's transfer graph |
 | Pump.fun live coins | ❌ | ✅ |
-| OG vs Copycat tags for reused names | ❌ | ✅ 👑 OG badge, “Copycat of X” link, OG-only filter |
+| OG vs VAMP tags for reused names | ❌ | ✅ 👑 OG badge, “VAMP” chip + “Vamp of X ↗” link, OG-only filter |
 | Enhanced token info | $299 | **On the Scope** $69 |
 | Boosts | ~$99–$899 | $19 / $49 / $129 |
 | Watchlist + price alerts | account needed | ✅ in-browser (localStorage + notifications), no login |
@@ -37,15 +37,15 @@ DexScreener shows you charts. TrenchScope shows you charts **plus a safety score
 - **Quick links:** Jupiter, Photon, SafeSign (`https://safesign-pg8h.onrender.com`), DexScreener, Solscan, RugCheck, pump.fun.
 - **Server-side caching:** every upstream call goes through a TTL cache with in-flight de-duplication, stale-on-error fallback, per-host throttling (GeckoTerminal ≈ 50/min) and retry on 429/5xx. Safety scans run in a background queue (2 workers) so tables load instantly and badges fill in.
 
-## 👑 OG vs Copycat (`lib/og.js`)
-When a coin pumps, vamps relaunch the same name/ticker. TrenchScope finds every Solana token with the same identity and marks the **first one to graduate** as **OG**; later ones get a **Copycat** tag that links to the OG.
+## 👑 OG vs VAMP (`lib/og.js`)
+When a coin pumps, vamps relaunch the same name/ticker. TrenchScope finds every Solana token with the same identity and marks the **first one to graduate** as **OG**; later ones get a **VAMP** tag (“Vamp: reused a name that already graduated earlier”) that links to the OG.
 - **Normalization:** lowercase, accents/emojis/`$`/punctuation/spaces stripped, leading “the”, one trailing suffix (`coin`, `token`, `official`, `sol`, `onsol`, `fun`, `ai`) removed — `streamoors.fun` = `Streamoors`, `The BONK Coin 🚀` = `bonk`.
 - **Same identity:** same normalized name, or same ticker AND one name contains the other (so `Streamflow` ≠ `streamoors` even though both are `STREAM`).
 - **Candidates:** DexScreener search by name and by ticker, then *all* pairs of every candidate via `/tokens/v1`.
 - **Graduation time:** earliest Raydium or PumpSwap pair (`pairCreatedAt`) — where pump.fun coins migrate when the curve completes. Earliest graduate = OG.
-- A same-name token that never graduated but traded earlier on another DEX (e.g. a Meteora launch) is **not** called a copycat; the OG card notes it.
+- A same-name token that never graduated but traded earlier on another DEX (e.g. a Meteora launch) is **not** called a vamp; the OG card notes it.
 - Results are cached persistently in `data/og-cache.json` (6h TTL) and computed in a background queue.
-- Real example (verified 16 Oct 2026): trending **FTR “Flying Tesla Roadster”** (`DFMt…pump`, PumpSwap 14 Oct) is marked **Copycat of FTR `3w5c…`**, which had a Raydium pair since 14 Aug 2026.
+- Real example (verified 16 Oct 2026): trending **FTR “Flying Tesla Roadster”** (`DFMt…pump`, PumpSwap 14 Oct) is marked **Vamp of FTR `3w5c…`**, which had a Raydium pair since 14 Aug 2026.
 
 ## 💸 Monetization (Solana Pay, USDC or SOL)
 | Product | Price | DexScreener |

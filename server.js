@@ -40,28 +40,42 @@ setInterval(() => { // evict entries older than 1h
 
 // ---------- rate-limited fetch per host ----------
 const limits = { 'api.geckoterminal.com': 2200, 'api.rugcheck.xyz': 700, 'api.dexscreener.com': 220, default: 100 };
-const lastCall = {};
-const queues = {};
-function throttle(host) {
+// Priority-aware per-host throttle: user-facing requests (charts, trades) jump ahead of background work
+// (list refreshes, prefetch). After a 429 the host enters a short cooldown.
+const hosts = {};
+const H = host => hosts[host] || (hosts[host] = { last: 0, q: [], timer: null, cooldownUntil: 0 });
+function pump(host) {
+  const h = H(host);
+  if (h.timer || !h.q.length) return;
   const gap = limits[host] ?? limits.default;
-  const prev = queues[host] || Promise.resolve();
-  const next = prev.then(async () => {
-    const wait = (lastCall[host] || 0) + gap - Date.now();
-    if (wait > 0) await new Promise(r => setTimeout(r, wait));
-    lastCall[host] = Date.now();
-  });
-  queues[host] = next.catch(() => {});
-  return next;
+  const wait = Math.max(h.last + gap, h.cooldownUntil) - Date.now();
+  h.timer = setTimeout(() => {
+    h.timer = null;
+    h.q.sort((a, b) => b.prio - a.prio || a.seq - b.seq);
+    const job = h.q.shift();
+    if (job) { h.last = Date.now(); job.resolve(); }
+    pump(host);
+  }, Math.max(0, wait));
 }
+let seq = 0;
+function throttle(host, prio = 0, key) {
+  return new Promise(resolve => { H(host).q.push({ prio, seq: seq++, resolve, key }); pump(host); });
+}
+// raise the priority of an already-queued request (e.g. a background safety scan the user is now waiting on)
+function bump(url, prio) { const h = H(new URL(url).host); for (const j of h.q) if (j.key === url && j.prio < prio) j.prio = prio; }
+const PRIO = { high: 10, normal: 0, low: -10 };
 async function getJSON(url, opts = {}, attempt = 0) {
   try { return await getJSONOnce(url, opts); } catch (e) {
-    if (attempt < 3 && /HTTP (429|5\d\d)/.test(e.message)) { await new Promise(r => setTimeout(r, 3000 * (attempt + 1))); return getJSON(url, opts, attempt + 1); }
+    const is429 = /HTTP 429/.test(e.message);
+    if (is429) H(new URL(url).host).cooldownUntil = Date.now() + 8000;
+    const maxTries = opts.prio >= PRIO.high ? 1 : 3; // user-facing: fail fast so the UI can fall back
+    if (attempt < maxTries && /HTTP (429|5\d\d)/.test(e.message)) { await new Promise(r => setTimeout(r, (is429 ? 4000 : 1500) * (attempt + 1))); return getJSON(url, opts, attempt + 1); }
     throw e;
   }
 }
-async function getJSONOnce(url, { timeout = 15000, method = 'GET', body } = {}) {
+async function getJSONOnce(url, { timeout = 15000, method = 'GET', body, prio = PRIO.normal } = {}) {
   const host = new URL(url).host;
-  await throttle(host);
+  await throttle(host, prio, url);
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeout);
   try {
@@ -70,6 +84,7 @@ async function getJSONOnce(url, { timeout = 15000, method = 'GET', body } = {}) 
     return await r.json();
   } finally { clearTimeout(t); }
 }
+const gtQueueDepth = () => H('api.geckoterminal.com').q.length;
 
 // ---------- normalizers ----------
 const num = v => (v === null || v === undefined || v === '' || isNaN(+v) ? null : +v);
@@ -126,7 +141,7 @@ async function geckoPools(kind, pages = 3) {
   const all = [];
   for (let page = 1; page <= pages; page++) {
     try {
-      const d = await cached(`gt:${kind}:${page}`, 90e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/${kind}?page=${page}`));
+      const d = await cached(`gt:${kind}:${page}`, 90e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/${kind}?page=${page}`, { prio: PRIO.low }));
       all.push(...(d.data || []));
     } catch { break; }
   }
@@ -189,18 +204,19 @@ const lists = {
 
 // ---------- safety (RugCheck + GoPlus) with background queue ----------
 const safetyQ = []; const queued = new Set();
-async function rugReport(mint) {
-  return cached('rc:' + mint, 15 * 60e3, () => getJSON(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, { timeout: 25000 }));
+async function rugReport(mint, prio = PRIO.low) {
+  if (prio > PRIO.low) bump(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, prio);
+  return cached('rc:' + mint, 15 * 60e3, () => getJSON(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, { timeout: 25000, prio }));
 }
 async function goplus(mint) {
   return cached('gp:' + mint, 30 * 60e3, async () => {
-    const d = await getJSON(`https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=${mint}`);
+    const d = await getJSON(`https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=${mint}`, { prio: PRIO.high, timeout: 8000 });
     return d?.result?.[mint] || null;
   });
 }
-async function safetyFor(mint, withGoplus = false) {
+async function safetyFor(mint, withGoplus = false, prio = PRIO.low) {
   return cached('sf:' + mint + (withGoplus ? ':gp' : ''), 15 * 60e3, async () => {
-    const [rc, gp] = await Promise.all([rugReport(mint), withGoplus ? goplus(mint).catch(() => null) : null]);
+    const [rc, gp] = await Promise.all([rugReport(mint, prio), withGoplus ? goplus(mint).catch(() => null) : null]);
     return scoreReport(rc, gp);
   });
 }
@@ -219,7 +235,7 @@ async function worker() {
 setInterval(() => { while (workers < 2 && safetyQ.length) worker(); }, 300).unref();
 
 // ---------- OG / copycat queue ----------
-const og = createOG({ getJSON, cached, file: process.env.OG_CACHE_FILE || path.join(__dirname, 'data', 'og-cache.json') });
+const og = createOG({ getJSON: (u, o = {}) => getJSON(u, { ...o, prio: PRIO.low }), cached, file: process.env.OG_CACHE_FILE || path.join(__dirname, 'data', 'og-cache.json') });
 const ogQ = []; const ogQueued = new Set(); let ogBusy = false;
 function enqueueOG(rows) { for (const r of rows) if (r && r.mint && r.name && !ogQueued.has(r.mint) && !og.peek(r.mint)) { ogQueued.add(r.mint); ogQ.push({ mint: r.mint, name: r.name, symbol: r.symbol }); } }
 setInterval(async () => {
@@ -272,7 +288,7 @@ app.get('/api/search', async (req, res) => {
   const q = String(req.query.q || '').trim().slice(0, 80);
   if (!q) return ok(res, { rows: [] });
   try {
-    const d = await cached('search:' + q.toLowerCase(), 60e3, () => getJSON(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}`));
+    const d = await cached('search:' + q.toLowerCase(), 60e3, () => getJSON(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}`, { prio: PRIO.high }));
     const m = new Map();
     for (const p of d.pairs || []) if (p.chainId === 'solana' && !SKIP.has(p.baseToken.address)) {
       const c = m.get(p.baseToken.address); if (!c || (p.liquidity?.usd || 0) > (c.liquidity?.usd || 0)) m.set(p.baseToken.address, p);
@@ -287,20 +303,20 @@ app.get('/api/token/:mint', async (req, res) => {
   if (!isMint(mint)) return fail(res, new Error('invalid mint'), 400);
   try {
     const [pairs, safety, pump] = await Promise.all([
-      cached('dsp:' + mint, 30e3, () => getJSON(`https://api.dexscreener.com/tokens/v1/solana/${mint}`)).catch(() => []),
-      safetyFor(mint, true).catch(e => ({ unavailable: true, error: e.message })),
+      cached('dsp:' + mint, 30e3, () => getJSON(`https://api.dexscreener.com/tokens/v1/solana/${mint}`, { prio: PRIO.high })).catch(() => []),
+      Promise.race([safetyFor(mint, true, PRIO.high), new Promise((_, j) => setTimeout(() => j(new Error('safety scan still running — refresh in a moment')), 12000))]).catch(e => ({ unavailable: true, error: e.message })),
       mint.endsWith('pump') ? cached('pf:' + mint, 60e3, () => getJSON(`https://frontend-api-v3.pump.fun/coins/${mint}`)).catch(() => null) : null,
     ]);
     const sol = (pairs || []).filter(p => p.chainId === 'solana' && p.baseToken.address === mint).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
     let main = sol[0] ? fromDex(sol[0]) : null;
     if (!main) { // fall back to GeckoTerminal token pools
       try {
-        const g = await cached('gtt:' + mint, 60e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/tokens/${mint}/pools?page=1`));
+        const g = await cached('gtt:' + mint, 60e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/tokens/${mint}/pools?page=1`, { prio: PRIO.high }));
         if (g.data?.[0]) main = fromGecko(g.data[0]);
       } catch {}
     }
     const ident = { mint, name: main?.name || safety?.name || pump?.name, symbol: main?.symbol || safety?.symbol || pump?.symbol };
-    const ogInfo = ident.name ? await Promise.race([og.check(ident).catch(() => null), new Promise(r => setTimeout(() => r(null), 15000))]) : null;
+    const ogInfo = og.peek(mint) || (ident.name ? await Promise.race([og.check(ident).catch(() => null), new Promise(r => setTimeout(() => r(null), 4000))]) : null);
     let dev = null;
     const creator = safety?.creator || pump?.creator;
     if (creator) {
@@ -318,20 +334,54 @@ app.get('/api/token/:mint', async (req, res) => {
   } catch (e) { fail(res, e); }
 });
 const TF = { '1m': ['minute', 1], '5m': ['minute', 5], '15m': ['minute', 15], '1h': ['hour', 1], '4h': ['hour', 4], '1d': ['day', 1] };
+// OHLCV: serve cached candles instantly (stale-while-revalidate), user requests get top priority,
+// and if GeckoTerminal can't answer within a deadline we tell the UI to use its fallback chart.
+const ohlcvUrl = (pool, tf) => `https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/ohlcv/${tf[0]}?aggregate=${tf[1]}&limit=300&currency=usd`;
+const toCandles = d => (d.data?.attributes?.ohlcv_list || []).map(([t, o, h, l, c, v]) => ({ time: t, open: o, high: h, low: l, close: c, volume: v })).sort((a, b) => a.time - b.time);
+function fetchOhlcv(pool, tfKey, prio) {
+  const key = `ohlcv:${pool}:${tfKey}`;
+  const hit = store.get(key);
+  if (prio >= PRIO.high) bump(ohlcvUrl(pool, TF[tfKey]), prio);
+  if (hit?.pending) return hit.pending;
+  const pending = getJSON(ohlcvUrl(pool, TF[tfKey]), { prio, timeout: 12000 }).then(d => {
+    const v = toCandles(d); store.set(key, { value: v, at: Date.now() }); return v;
+  }).catch(e => { if (hit?.value) store.set(key, { value: hit.value, at: hit.at }); else store.delete(key); throw e; });
+  store.set(key, { ...(hit || {}), pending });
+  return pending;
+}
 app.get('/api/ohlcv/:pool', async (req, res) => {
-  const tf = TF[req.query.tf] || TF['5m']; const { pool } = req.params;
+  const tfKey = TF[req.query.tf] ? req.query.tf : '5m'; const { pool } = req.params;
   if (!isMint(pool)) return fail(res, new Error('invalid pool'), 400);
+  const key = `ohlcv:${pool}:${tfKey}`;
+  const hit = store.get(key);
+  const age = hit?.value ? Date.now() - hit.at : Infinity;
+  if (hit?.value && age < 30 * 60e3) {
+    if (age > 45e3) fetchOhlcv(pool, tfKey, PRIO.high).catch(() => {}); // refresh in background
+    res.set('Cache-Control', 'no-cache');
+    return res.json({ candles: hit.value, cachedAgeSec: Math.round(age / 1000), source: 'geckoterminal' });
+  }
+  const deadline = new Promise(r => setTimeout(() => r('timeout'), 7000));
   try {
-    const d = await cached(`ohlcv:${pool}:${req.query.tf}`, 45e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/ohlcv/${tf[0]}?aggregate=${tf[1]}&limit=300&currency=usd`));
-    const list = (d.data?.attributes?.ohlcv_list || []).map(([t, o, h, l, c, v]) => ({ time: t, open: o, high: h, low: l, close: c, volume: v })).sort((a, b) => a.time - b.time);
-    ok(res, { candles: list }, 30);
-  } catch (e) { fail(res, e); }
+    const v = await Promise.race([fetchOhlcv(pool, tfKey, PRIO.high), deadline]);
+    if (v === 'timeout') return res.status(503).json({ error: 'Chart data is busy, using fallback chart', fallback: true, queue: gtQueueDepth() });
+    res.set('Cache-Control', 'public, max-age=30'); res.json({ candles: v, cachedAgeSec: 0, source: 'geckoterminal' });
+  } catch (e) { res.status(503).json({ error: e.message, fallback: true }); }
 });
+// warm OHLCV (5m) for the top trending pools at low priority so most chart opens are instant
+async function prefetchOhlcv() {
+  try {
+    const rows = await lists.trending();
+    for (const r of rows.slice(0, 8)) {
+      const hit = store.get(`ohlcv:${r.pair}:5m`);
+      if (r.pair && !(hit?.value && Date.now() - hit.at < 4 * 60e3)) await fetchOhlcv(r.pair, '5m', PRIO.low).catch(() => {});
+    }
+  } catch {}
+}
 app.get('/api/trades/:pool', async (req, res) => {
   const { pool } = req.params;
   if (!isMint(pool)) return fail(res, new Error('invalid pool'), 400);
   try {
-    const d = await cached('trades:' + pool, 20e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/trades`));
+    const d = await cached('trades:' + pool, 20e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/trades`, { prio: PRIO.high - 1, timeout: 10000 }));
     const rows = (d.data || []).slice(0, 60).map(t => {
       const a = t.attributes;
       return { tx: a.tx_hash, wallet: a.tx_from_address, kind: a.kind, at: a.block_timestamp, usd: num(a.volume_in_usd),
@@ -399,7 +449,7 @@ app.post('/api/admin/orders/:id/:action(approve|reject)', admin, (req, res) => {
 });
 app.post('/api/admin/orders/:id/recheck', admin, async (req, res) => { try { res.json(await pay.checkOrder(req.params.id)); } catch (e) { fail(res, e); } });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, cacheEntries: store.size }));
+app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, cacheEntries: store.size }));
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
@@ -411,5 +461,6 @@ if (require.main === module) {
   // warm caches so the first visitor sees data and safety scores
   const warm = () => Promise.allSettled(Object.keys(lists).map(k => lists[k]().then(r => { enqueue(r.slice(0, 80).map(x => x.mint)); enqueueOG(r.slice(0, 80)); })));
   warm(); setInterval(warm, 90e3).unref();
+  setTimeout(() => { prefetchOhlcv(); setInterval(prefetchOhlcv, 5 * 60e3).unref(); }, 20e3);
 }
 module.exports = { app };

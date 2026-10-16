@@ -64,8 +64,8 @@ const promoTag = (n, big) => n ? `<span class="chip promo" title="Promoted: ${n}
 const dt = ts => ts ? new Date(ts).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?';
 function ogTag(o, big) {
   if (!o) return '';
-  if (o.status === 'og') return `<span class="chip og" title="${esc(`OG: first token with this name/ticker to graduate — earliest ${o.gradDex} pair ${dt(o.gradAt)}. ${o.copycats ? o.copycats + ' later token(s) reuse the name.' : 'No copycats found.'}${o.olderNonGraduated ? ' Note: ' + o.olderNonGraduated + ' same-name token(s) traded earlier on other DEXes without graduating.' : ''} Based on DexScreener-indexed pairs only.`)}">OG${big && o.copycats ? ` · ${o.copycats} copycat${o.copycats > 1 ? 's' : ''}` : ''}</span>`;
-  if (o.status === 'copycat' && o.og) return `<a class="chip copy" href="/token/${o.og.mint}" data-link data-stop title="${esc(`Copycat: ${o.og.symbol} (${short(o.og.mint)}) graduated first (${o.og.gradDex}, ${dt(o.og.gradAt)})${o.gradAt ? '; this one graduated ' + dt(o.gradAt) : '; this one has not graduated'}. Click to open the OG. Based on DexScreener-indexed pairs only.`)}">${big ? 'Copycat of ' + esc(o.og.symbol) + ' ↗' : 'COPY'}</a>`;
+  if (o.status === 'og') return `<span class="chip og" title="${esc(`OG: first token with this name/ticker to graduate — earliest ${o.gradDex} pair ${dt(o.gradAt)}. ${o.copycats ? o.copycats + ' later vamp(s) reuse the name.' : 'No vamps found.'}${o.olderNonGraduated ? ' Note: ' + o.olderNonGraduated + ' same-name token(s) traded earlier on other DEXes without graduating.' : ''} Based on DexScreener-indexed pairs only.`)}">OG${big && o.copycats ? ` · ${o.copycats} vamp${o.copycats > 1 ? 's' : ''}` : ''}</span>`;
+  if (o.status === 'copycat' && o.og) return `<a class="chip copy" href="/token/${o.og.mint}" data-link data-stop title="${esc(`Vamp: reused a name that already graduated earlier — ${o.og.symbol} (${short(o.og.mint)}) graduated first (${o.og.gradDex}, ${dt(o.og.gradAt)})${o.gradAt ? '; this one graduated ' + dt(o.gradAt) : '; this one has not graduated'}. Click to open the OG. Based on DexScreener-indexed pairs only.`)}">${big ? 'Vamp of ' + esc(o.og.symbol) + ' ↗' : 'VAMP'}</a>`;
   return '';
 }
 
@@ -308,7 +308,7 @@ async function tokenPage(mint) {
   <div class="tp-head" style="margin-top:10px">${icon({ icon: (sc && safeUrl(sc.logo)) || d.icon, symbol: d.symbol })}
     <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)} ${promoTag(d.promo, true)}</h1>
       <div class="addr"><span>${esc(short(mint))}</span><button class="copy" data-copy="${mint}">Copy CA</button>${m.dex ? `<span class="chip">${esc(m.dex)}</span>` : ''}${s.launchpad ? `<span class="chip">${esc(s.launchpad)}</span>` : ''}${m.createdAt ? `<span class="chip">Pair age ${age(m.createdAt)}</span>` : ''}${socials.map(x => `<a class="chip" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join('')}</div></div>
-    <div class="price-big"><b class="mono">${price(m.priceUsd)}</b>${pct(m.change?.h24)} <span class="dim">24h</span></div>
+    <div class="price-big" id="pbig" role="button" tabindex="0" title="Tap to switch Price ⇄ Market cap"></div>
   </div>
   ${sc ? `<div class="card scopecard"><div class="mut" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${SCOPE_ICO} Project info · submitted by the team, reviewed by TrenchScope</div><p style="margin:0 0 8px;white-space:pre-wrap">${esc(sc.description)}</p>${scLinks.map(([l, u]) => `<a class="chip" href="${esc(u)}" target="_blank" rel="noopener nofollow">${l} ↗</a>`).join(' ')}</div>` : ''}
   <div class="actions">
@@ -330,7 +330,7 @@ async function tokenPage(mint) {
   </div>
   <div class="grid">
     <div class="stack">
-      <div class="card chartcard"><div class="chart-top">${['1m', '5m', '15m', '1h', '4h', '1d'].map(t => `<button class="tf" data-tf="${t}">${t}</button>`).join('')}<span class="dim" style="margin-left:auto;font-size:12px">${m.pair ? 'GeckoTerminal OHLCV · USD' : ''}</span></div><div id="chart">${m.pair ? '' : '<div class="empty">No trading pair found yet.</div>'}</div>
+      <div class="card chartcard"><div class="chart-top">${['1m', '5m', '15m', '1h', '4h', '1d'].map(t => `<button class="tf" data-tf="${t}">${t}</button>`).join('')}<span class="dim" id="chartSrc" style="margin-left:auto;font-size:12px">${m.pair ? 'GeckoTerminal OHLCV · USD' : ''}</span></div><div id="chart">${m.pair ? '' : '<div class="empty">No trading pair found yet.</div>'}</div>
         <div class="chg-row">${['m5', 'h1', 'h6', 'h24'].map(k => `<div><small>${k.replace('m', '').replace('h', '')}${k[0]}</small>${pct(m.change?.[k])}</div>`).join('')}</div></div>
       <div class="card trades"><h3>Recent trades <span class="r" id="trUpd"></span></h3><div class="scroll" id="trades"><div class="skel"></div></div></div>
       ${d.pairs?.length > 1 ? `<div class="card"><h3>Pools</h3><div class="scroll"><table style="min-width:520px"><thead><tr><th class="l">DEX</th><th class="l">Pair</th><th>Price</th><th>Liquidity</th><th>Vol 24h</th></tr></thead><tbody>${d.pairs.map(p => `<tr onclick="window.open('${links(mint, p.pair).dex}','_blank')"><td class="l">${esc(p.dex)}</td><td class="l mono dim">${esc(short(p.pair))} · ${esc(p.quote)}</td><td class="mono">${price(p.priceUsd)}</td><td>${usd(p.liquidity)}</td><td>${usd(p.volume?.h24)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
@@ -356,6 +356,14 @@ async function tokenPage(mint) {
         <div id="myAlerts" style="margin-top:8px"></div></div>
     </div>
   </div>`;
+  const mc = m.mcap ?? m.fdv ?? d.pump?.usdMcap ?? null;
+  const drawBig = () => {
+    const showMc = LS.get('bigMode', 'price') === 'mcap' && mc != null;
+    $('#pbig').innerHTML = `<b class="mono">${showMc ? usd(mc) : price(m.priceUsd)}</b>${pct(m.change?.h24)} <span class="dim">24h</span><div class="pb-hint">${showMc ? '<u>MCap</u> ⇄ Price' : '<u>Price</u> ⇄ MCap'}</div>`;
+  };
+  drawBig();
+  $('#pbig').onclick = () => { LS.set('bigMode', LS.get('bigMode', 'price') === 'mcap' ? 'price' : 'mcap'); drawBig(); };
+  $('#pbig').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#pbig').click(); } };
   app.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = 'Copied ✓'; setTimeout(() => (b.textContent = 'Copy CA'), 1500); });
   $('#wbtn').onclick = () => { toggleWatch({ mint, symbol: d.symbol, icon: d.icon }); $('#wbtn').textContent = isWatched(mint) ? '★ Watching' : '☆ Watchlist'; };
   const drawMy = () => { const mine = alerts.filter(a => a.mint === mint); $('#myAlerts').innerHTML = mine.map(a => `<div class="al"><span class="mut">${a.dir}</span><span class="mono">${price(a.price)}</span><button class="x" data-del="${a.id}">✕</button></div>`).join(''); $('#myAlerts').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { alerts = alerts.filter(a => a.id != b.dataset.del); LS.set('alerts', alerts); renderAlertCount(); drawMy(); }); };
@@ -374,11 +382,11 @@ async function tokenPage(mint) {
 function ogCard(o, sym) {
   if (!o) return '<div class="mut">Not checked yet (search sources busy) — reload in a minute.</div>';
   const note = `<p class="dim" style="font-size:11px;margin:10px 0 0">Compares Solana tokens with the same normalized name (case, spaces, emojis, suffixes like “coin”/“.fun” ignored) or same ticker + overlapping name. OG = earliest first Raydium/PumpSwap pair (pump.fun graduation venue). Only tokens DexScreener search returns are considered (${o.size} found, ${o.graduatedCount} graduated).</p>`;
-  const v = o.status === 'og' ? `<span style="color:var(--gold)">OG — graduated first</span>` : o.status === 'copycat' ? `<span class="dn">Copycat</span>` : '<span class="mut">No graduated token with this name found</span>';
+  const v = o.status === 'og' ? `<span style="color:var(--gold)">OG — graduated first</span>` : o.status === 'copycat' ? `<span class="dn">VAMP — reused a name that already graduated earlier</span>` : '<span class="mut">No graduated token with this name found</span>';
   return `<dl class="kv"><dt>Verdict</dt><dd>${v}</dd>
     <dt>This token graduated</dt><dd>${o.gradAt ? dt(o.gradAt) + ' · ' + esc(o.gradDex) : 'Not yet (no Raydium/PumpSwap pair)'}</dd>
     ${o.status === 'copycat' && o.og ? `<dt>OG token</dt><dd><a href="/token/${o.og.mint}" data-link style="color:var(--gold)">${esc(o.og.symbol)} · ${esc(short(o.og.mint))} ↗</a></dd><dt>OG graduated</dt><dd>${dt(o.og.gradAt)} · ${esc(o.og.gradDex)}</dd>` : ''}
-    ${o.status === 'og' ? `<dt>Copycats found</dt><dd>${o.copycats}</dd>` : ''}
+    ${o.status === 'og' ? `<dt>Vamps found</dt><dd>${o.copycats}</dd>` : ''}
     ${o.olderNonGraduated ? `<dt>Older non-pump tokens</dt><dd class="mut">${o.olderNonGraduated} traded earlier on other DEXes</dd>` : ''}
     <dt>Same-name tokens indexed</dt><dd>${o.size}</dd></dl>${note}`;
 }
@@ -390,6 +398,7 @@ async function loadTrades(pool, sym) {
     el.innerHTML = rows.length ? `<table><thead><tr><th class="l">Time</th><th class="l">Type</th><th>USD</th><th>${esc(sym)}</th><th>Price</th><th class="l">Wallet</th></tr></thead><tbody>${rows.slice(0, 25).map(t => `<tr onclick="window.open('https://solscan.io/tx/${esc(t.tx)}','_blank')"><td class="l dim">${age(Date.parse(t.at))} ago</td><td class="l ${t.kind === 'buy' ? 'up' : 'dn'}" style="font-weight:700">${t.kind === 'buy' ? 'Buy' : 'Sell'}</td><td class="${t.kind === 'buy' ? 'up' : 'dn'}">${usd(t.usd, 2)}</td><td class="mono">${t.tokenAmount != null ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(t.tokenAmount) : '—'}</td><td class="mono">${price(t.price)}</td><td class="l mono"><a style="color:var(--b)" href="https://solscan.io/account/${esc(t.wallet)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(short(t.wallet))}</a></td></tr>`).join('')}</tbody></table>` : '<div class="mut">No recent trades reported.</div>';
   } catch (e) { const el = $('#trades'); if (el && !el.querySelector('table')) el.innerHTML = `<div class="mut">Trades unavailable (${esc(e.message)}).</div>`; }
 }
+const candleCache = {};
 function initChart(pool, lastPrice) {
   const el = $('#chart');
   const LW = window.LightweightCharts;
@@ -405,15 +414,37 @@ function initChart(pool, lastPrice) {
   chart.priceScale('v').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
   cs.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.22 } });
   let tf = LS.get('tf', '5m');
-  const load = async (fit) => {
+  const overlay = html => { $('#nochart')?.remove(); if (html) el.insertAdjacentHTML('beforeend', `<div class="chart-ov" id="nochart">${html}</div>`); };
+  const skel = '<div class="chart-skel"><div class="skel" style="height:100%;border-radius:0;opacity:.35"></div><span>Loading chart…</span></div>';
+  let fallbackShown = false;
+  const showFallback = msg => {
+    if (fallbackShown) return; fallbackShown = true; const lb = $('#chartSrc'); if (lb) lb.textContent = 'DexScreener chart (fallback)';
+    overlay(`<iframe src="https://dexscreener.com/solana/${pool}?embed=1&loadChartSettings=0&trades=0&tabs=0&info=0&chartLeftToolbar=0&chartTheme=dark&theme=dark&chartStyle=1&chartType=usd&interval=${({ '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': '1D' })[tf]}" title="DexScreener chart" loading="lazy" referrerpolicy="no-referrer" style="position:absolute;inset:0;width:100%;height:100%;border:0"></iframe>
+      <div class="fb-note">Fallback chart (DexScreener) · ${esc(msg)} <button class="tf" id="retryChart">Retry ↻</button></div>`);
+    $('#retryChart').onclick = () => { fallbackShown = false; load(true, 0); };
+  };
+  const draw = (candles, fit) => {
+    cs.setData(candles); vs.setData(candles.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? 'rgba(20,241,149,.35)' : 'rgba(255,77,106,.35)' })));
+    if (fit) chart.timeScale().fitContent();
+  };
+  const load = async (fit, attempt = 0) => {
     app.querySelectorAll('[data-tf]').forEach(b => b.classList.toggle('on', b.dataset.tf === tf));
+    const key = pool + ':' + tf; const mine = tf;
+    if (fit) { if (candleCache[key]) { draw(candleCache[key], true); overlay(''); } else if (!fallbackShown) overlay(skel); }
     try {
-      const { candles } = await api(`/api/ohlcv/${pool}?tf=${tf}`);
-      if (!candles.length) { el.insertAdjacentHTML('beforeend', '<div class="empty" style="position:absolute;inset:0" id="nochart">No candle data yet for this pool.</div>'); return; }
-      $('#nochart')?.remove();
-      cs.setData(candles); vs.setData(candles.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? 'rgba(20,241,149,.35)' : 'rgba(255,77,106,.35)' })));
-      if (fit) chart.timeScale().fitContent();
-    } catch (e) { if (fit) el.insertAdjacentHTML('beforeend', `<div class="empty" style="position:absolute;inset:0" id="nochart">Chart unavailable: ${esc(e.message)}</div>`); }
+      const r = await fetch(`/api/ohlcv/${pool}?tf=${tf}`); const j = await r.json().catch(() => ({}));
+      if (mine !== tf) return;
+      if (!r.ok) throw Object.assign(new Error(j.error || 'HTTP ' + r.status), { fallback: j.fallback });
+      if (!j.candles.length) { if (fit) showFallback('no candles from GeckoTerminal yet'); return; }
+      candleCache[key] = j.candles; fallbackShown = false; overlay(''); draw(j.candles, fit);
+      const lbl = $('#chartSrc'); if (lbl) lbl.textContent = `GeckoTerminal OHLCV · USD${j.cachedAgeSec > 60 ? ' · cached ' + Math.round(j.cachedAgeSec / 60) + 'm ago' : ''}`;
+    } catch (e) {
+      if (mine !== tf) return;
+      if (candleCache[key]) return; // keep showing what we have
+      if (attempt < 1) { setTimeout(() => load(fit, attempt + 1), 2500); return; }
+      showFallback('native chart rate-limited, retrying in background');
+      setTimeout(() => { if (fallbackShown && mine === tf) { fallbackShown = true; load(false, 1).then(() => {}); } }, 20000);
+    }
   };
   app.querySelectorAll('[data-tf]').forEach(b => b.onclick = () => { tf = b.dataset.tf; LS.set('tf', tf); load(true); });
   load(true);
