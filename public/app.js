@@ -123,10 +123,11 @@ window.onpopstate = route;
 function route() {
   cleanup.forEach(f => f()); cleanup = [];
   $('#results').hidden = true; $('#drawer').hidden = true;
-  const m = location.pathname.match(/^\/token\/([1-9A-HJ-NP-Za-km-z]{32,44})/);
+  const mc = location.pathname.match(/^\/token\/([a-z0-9-]+)\/([^/]+)$/);
+  const m = location.pathname.match(/^\/token\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
   window.scrollTo(0, 0);
   const o = location.pathname.match(/^\/order\/([a-f0-9]{20})$/);
-  if (m) tokenPage(m[1]); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else listPage();
+  if (mc) tokenPage(decodeURIComponent(mc[2]), mc[1]); else if (m) tokenPage(m[1]); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else listPage();
 }
 
 // ---------- list page ----------
@@ -137,10 +138,28 @@ const TABS = [
   { id: 'pumpfun', label: '<span class="dot"></span> Pump.fun live', desc: 'Coins currently live-streaming on pump.fun (bonding curve & migrated).' },
   { id: 'watch', label: '★ Watchlist', desc: 'Your starred tokens — saved locally in this browser.' },
 ];
-const DEF = { tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, ogOnly: false, vvOnly: false, sort: null, dir: -1 };
+const DEF = { chain: 'solana', tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, ogOnly: false, vvOnly: false, sort: null, dir: -1 };
 let st = { ...DEF, ...LS.get('filters', {}) };
 const saveSt = () => LS.set('filters', st);
 let rows = [], safetyMap = {}, ogMap = {}, lastUpdated = 0;
+let CHAINS = [{ id: 'solana', name: 'Solana', color: '#14f195' }];
+const chainOf = id => id === 'all' ? { id: 'all', name: 'All chains', color: '#9aa4b8' } : (CHAINS.find(c => c.id === id) || { id, name: id, color: '#9aa4b8' });
+const chainDot = (id, big) => { const c = chainOf(id); return `<span class="cdot${big ? ' big' : ''}" style="--c:${c.color}" title="${esc(c.name)}">${esc(c.name.replace(/[^A-Za-z]/g, '').slice(0, 2))}</span>`; };
+const tokenHref = x => x.chain && x.chain !== 'solana' ? `/token/${x.chain}/${encodeURIComponent(x.mint)}` : `/token/${x.mint}`;
+api('/api/chains').then(d => { CHAINS = d.chains; renderChainBtn(); }).catch(() => {});
+function renderChainBtn() { const b = $('#chainBtn'); if (b) b.innerHTML = `${chainDot(st.chain)}<span class="cname">${esc(chainOf(st.chain).name)}</span><span class="dim">▾</span>`; }
+function chainSheet() {
+  $('#csheet')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg sheet-bg" id="csheet"><div class="sheet"><div class="grab"></div><h2>Select chain</h2>
+    <input id="cq" placeholder="Search chains…" autocomplete="off"><div class="clist" id="clist"></div></div></div>`);
+  const draw = q => { const all = [{ id: 'all', name: 'All chains' }, ...CHAINS].filter(c => c.name.toLowerCase().includes(q.toLowerCase()));
+    $('#clist').innerHTML = all.map(c => `<button class="crow ${c.id === st.chain ? 'on' : ''}" data-c="${c.id}">${chainDot(c.id, true)}<span>${esc(c.name)}</span>${c.id === st.chain ? '<span class="up" style="margin-left:auto">✓</span>' : ''}</button>`).join('') || '<div class="mut" style="padding:12px">No chain found</div>';
+    $('#clist').querySelectorAll('[data-c]').forEach(b => b.onclick = () => { st.chain = b.dataset.c; if (st.chain !== 'solana' && !['trending', 'new', 'gainers'].includes(st.tab)) st.tab = 'trending'; saveSt(); $('#csheet').remove(); renderChainBtn(); if (location.pathname !== '/') go('/'); else listPage(); }); };
+  draw(''); $('#cq').oninput = e => draw(e.target.value);
+  $('#csheet').onclick = e => { if (e.target.id === 'csheet') $('#csheet').remove(); };
+  setTimeout(() => $('#cq')?.focus(), 50);
+}
+document.addEventListener('click', e => { if (e.target.closest('#chainBtn')) chainSheet(); });
 
 function filtered() {
   let r = rows.map(x => ({ ...x, safety: safetyMap[x.mint] || x.safety, og: ogMap[x.mint] || x.og }));
@@ -165,11 +184,13 @@ const tog = (key, label) => `<button class="toggle ${st[key] ? 'on' : ''}" data-
 
 function listPage() {
   document.title = 'TrenchScope — Solana screener with safety on every row';
+  if (st.chain !== 'solana' && !['trending', 'new', 'gainers'].includes(st.tab)) st.tab = 'trending';
   const tab = TABS.find(t => t.id === st.tab) || TABS[0];
+  renderChainBtn();
   app.innerHTML = `
-  <section class="hero"><div><h1>${tab.label.replace(/<[^>]+>/g, '')} <span class="mut" style="font-weight:500">on Solana</span></h1><p>${tab.desc}</p></div>
+  <section class="hero"><div><h1>${tab.label.replace(/<[^>]+>/g, '')} <span class="mut" style="font-weight:500">on ${esc(chainOf(st.chain).name)}</span></h1><p>${tab.desc}</p></div>
   <div class="stats" id="stats"></div></section>
-  <nav class="tabs">${TABS.map(t => `<button class="tab ${t.id === st.tab ? 'on' : ''}" data-tab="${t.id}">${t.label}${t.id === 'watch' ? ` <span class="chip">${Object.keys(watch).length}</span>` : ''}</button>`).join('')}</nav>
+  <nav class="tabs">${TABS.filter(t => st.chain === 'solana' || ['trending', 'new', 'gainers'].includes(t.id)).map(t => `<button class="tab ${t.id === st.tab ? 'on' : ''}" data-tab="${t.id}">${t.label}${t.id === 'watch' ? ` <span class="chip">${Object.keys(watch).length}</span>` : ''}</button>`).join('')}</nav>
   <div class="bar"><div class="filters">
     ${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${tog('vvOnly', 'VV only')}${glossLink}${tog('noBundle', 'Hide bundled')}
     ${sel('liq', 'Liq ≥', [[0, 'Any'], [5000, '$5K'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [500000, '$500K']])}
@@ -206,7 +227,7 @@ async function load(first) {
       // fetch fuller rows for watched tokens via search-free path: reuse token endpoint lazily
       lastUpdated = Date.now();
     } else {
-      const d = await api('/api/list/' + st.tab);
+      const d = await api('/api/list/' + st.tab + (st.chain !== 'solana' ? '?chain=' + st.chain : ''));
       rows = d.rows; lastUpdated = d.updatedAt;
       for (const r of rows) { if (r.safety) safetyMap[r.mint] = r.safety; if (r.og) ogMap[r.mint] = r.og; }
     }
@@ -216,6 +237,7 @@ async function load(first) {
   }
 }
 async function pollSafety() {
+  if (st.chain !== 'solana') return;
   const need = rows.slice(0, 150).map(r => r.mint).filter(m => !safetyMap[m] || !ogMap[m]);
   if (!need.length) return;
   try {
@@ -242,26 +264,26 @@ function draw() {
   tb.innerHTML = r.slice(0, 200).map((x, i) => {
     const b = x.txns?.h24?.buys, s = x.txns?.h24?.sells, tot = (b || 0) + (s || 0);
     const L = links(x.mint, x.pair);
-    return `<tr data-m="${x.mint}" class="${x.promo ? 'promoted' : ''}">
+    return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class=""${x.promo ? 'promoted' : ''}">
       <td class="l"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}" title="Watchlist">${isWatched(x.mint) ? '★' : '☆'}</button></td>
-      <td class="l"><div class="tok">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''}</span></div></div></td>
+      <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''}</span></div></div></td>
       <td class="l"><span class="safe">${badge(x.safety)}${pips(x.safety)}</span></td>
       <td class="mono">${price(x.priceUsd)}</td><td class="mut">${age(x.createdAt)}</td>
       <td>${tot ? `<div class="txbar"><span>${tot.toLocaleString()}</span><span class="b"><i style="width:${(b / tot * 100).toFixed(0)}%"></i></span></div>` : '<span class="dim">—</span>'}</td>
       <td>${usd(x.volume?.h24)}</td><td>${pct(x.change?.m5)}</td><td>${pct(x.change?.h1)}</td><td>${pct(x.change?.h6)}</td><td>${pct(x.change?.h24)}</td>
       <td>${usd(x.liquidity)}</td><td>${usd(x.mcap || x.fdv)}</td>
-      <td><a class="buy" href="${L.jup}" target="_blank" rel="noopener" data-stop>Buy</a></td></tr>`;
+      <td><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : L.jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></td></tr>`;
   }).join('');
-  $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c" data-m="${x.mint}">
+  $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
       <div class="tok" style="grid-column:1/3">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)}</span></div></div>
       <div class="pr"><b class="mono">${price(x.priceUsd)}</b>${pct(x.change?.h24 ?? x.change?.h1)}</div>
-      <div class="sf"><span class="safe">${badge(x.safety)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button><a class="buy" href="${links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>Buy</a></span></div>
+      <div class="sf"><span class="safe">${badge(x.safety)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></span></div>
       <div class="meta"><span>Liq <b>${usd(x.liquidity)}</b></span><span>Vol <b>${usd(x.volume?.h24)}</b></span><span>MCap <b>${usd(x.mcap || x.fdv)}</b></span><span>1h ${pct(x.change?.h1)}</span></div></div>`).join('');
   app.querySelectorAll('[data-m]').forEach(el => el.onclick = e => {
     if (e.target.closest('[data-stop]')) return;
     const w = e.target.closest('[data-w]');
     if (w) { const row = rows.find(z => z.mint === w.dataset.w); toggleWatch(row); if (st.tab === 'watch') load(); else draw(); return; }
-    go('/token/' + el.dataset.m);
+    go(el.dataset.h || '/token/' + el.dataset.m);
   });
 }
 
@@ -290,10 +312,12 @@ document.addEventListener('keydown', e => { if (e.key === '/' && document.active
 document.addEventListener('click', e => { if (!$('#searchForm').contains(e.target)) $('#results').hidden = true; else if (e.target.closest('#results a')) { $('#q').value = ''; } });
 
 // ---------- token page ----------
-async function tokenPage(mint) {
+let CUR_CHAIN = 'solana';
+async function tokenPage(mint, chain = 'solana') {
+  CUR_CHAIN = chain; const isSol = chain === 'solana'; const cq = isSol ? '' : '?chain=' + chain;
   app.innerHTML = `<div class="tp-head"><div class="ico"></div><div style="flex:1"><div class="skel" style="width:200px;height:22px"></div><div class="skel" style="width:300px;margin-top:8px"></div></div></div><div class="kpis">${'<div class="kpi"><div class="skel"></div></div>'.repeat(4)}</div><div class="card" style="height:430px"></div>`;
   let d;
-  try { d = await api('/api/token/' + mint); } catch (e) { app.innerHTML = `<div class="err">Couldn't load token: ${esc(e.message)}</div><p style="text-align:center"><a href="/" data-link class="btn">← Back to screener</a></p>`; return; }
+  try { d = await api('/api/token/' + encodeURIComponent(mint) + cq); } catch (e) { app.innerHTML = `<div class="err">Couldn't load token: ${esc(e.message)}</div><p style="text-align:center"><a href="/" data-link class="btn">← Back to screener</a></p>`; return; }
   const m = d.main || {}; const s = d.safety || {}; const L = links(mint, m.pair);
   document.title = `${d.symbol || short(mint)} ${m.priceUsd ? '· ' + price(m.priceUsd).replace(/<[^>]+>/g, '') : ''} — TrenchScope`;
   const sv = !s.unavailable;
@@ -313,14 +337,14 @@ async function tokenPage(mint) {
   </div>
   ${sc ? `<div class="card scopecard"><div class="mut" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${SCOPE_ICO} Project info · submitted by the team, reviewed by TrenchScope</div><p style="margin:0 0 8px;white-space:pre-wrap">${esc(sc.description)}</p>${scLinks.map(([l, u]) => `<a class="chip" href="${esc(u)}" target="_blank" rel="noopener nofollow">${l} ↗</a>`).join(' ')}</div>` : ''}
   <div class="actions">
-    <a class="btn pri" href="${L.jup}" target="_blank" rel="noopener">⚡ Buy on Jupiter</a>
+    ${isSol ? `<a class="btn pri" href="${L.jup}" target="_blank" rel="noopener">⚡ Buy on Jupiter</a>
     <a class="btn ss" href="${L.safesign}" target="_blank" rel="noopener">🛡 Deep scan on SafeSign</a>
-    <button class="btn" id="wbtn">${isWatched(mint) ? '★ Watching' : '☆ Watchlist'}</button>
-    <a class="btn" href="${L.dex}" target="_blank" rel="noopener">DexScreener ↗</a>
-    <a class="btn" href="${L.solscan}" target="_blank" rel="noopener">Solscan ↗</a>
-    <a class="btn" href="${L.rug}" target="_blank" rel="noopener">RugCheck ↗</a>
+    <button class="btn" id="wbtn">${isWatched(mint) ? '★ Watching' : '☆ Watchlist'}</button>` : `<span class="chip">${chainDot(chain)} ${esc(chainOf(chain).name)}</span>`}
+    <a class="btn ${isSol ? '' : 'pri'}" href="https://dexscreener.com/${chain}/${m.pair || mint}" target="_blank" rel="noopener">${isSol ? 'DexScreener ↗' : 'Trade on DexScreener ↗'}</a>
+    ${isSol ? `<a class="btn" href="${L.solscan}" target="_blank" rel="noopener">Solscan ↗</a>
+    <a class="btn" href="${L.rug}" target="_blank" rel="noopener">RugCheck ↗</a>` : ''}
     ${d.pump ? `<a class="btn" href="${L.pump}" target="_blank" rel="noopener">pump.fun ↗</a>` : ''}
-    <a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get On the Scope / Boost'}</a>
+    ${isSol ? '' : '<!--'}<a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get On the Scope / Boost'}</a>${isSol ? '' : '-->'}
   </div>
   <div class="kpis">
     <div class="kpi"><small>Market cap</small><b>${usd(m.mcap ?? d.pump?.usdMcap)}</b><span class="dim" style="font-size:12px">FDV ${usd(m.fdv)}</span></div>
@@ -335,7 +359,7 @@ async function tokenPage(mint) {
       <div class="card trades"><h3>Recent trades <span class="r" id="trUpd"></span></h3><div class="scroll" id="trades"><div class="skel"></div></div></div>
       ${d.pairs?.length > 1 ? `<div class="card"><h3>Pools</h3><div class="scroll"><table style="min-width:520px"><thead><tr><th class="l">DEX</th><th class="l">Pair</th><th>Price</th><th>Liquidity</th><th>Vol 24h</th></tr></thead><tbody>${d.pairs.map(p => `<tr onclick="window.open('${links(mint, p.pair).dex}','_blank')"><td class="l">${esc(p.dex)}</td><td class="l mono dim">${esc(short(p.pair))} · ${esc(p.quote)}</td><td class="mono">${price(p.priceUsd)}</td><td>${usd(p.liquidity)}</td><td>${usd(p.volume?.h24)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
     </div>
-    <div class="stack">
+    ${isSol ? `    <div class="stack">
       <div class="card"><h3>🛡 Safety <span class="r">RugCheck + GoPlus</span></h3>
         ${sv ? `<div class="score-ring"><div class="ring" style="--v:${s.score};--c:${ringC}"><span style="color:${ringC}">${s.score}</span></div><div><div style="font-weight:800;font-size:16px;text-transform:capitalize">${s.grade === 'safe' ? 'Looks clean' : s.grade === 'caution' ? 'Caution' : 'High risk'}</div><div class="mut" style="font-size:12px">TrenchScope score /100</div><div style="margin-top:6px">${pips(s)}</div></div></div>
         <div class="flags">${s.flags.map(f => `<div class="flag ${f.level}"><i></i><div><b>${esc(f.title)}</b><p>${esc(f.detail)}</p></div></div>`).join('')}</div>${verdict}` : `<div class="mut">Safety data unavailable right now${s.error ? ' (' + esc(s.error) + ')' : ''}. Try the <a href="${L.safesign}" target="_blank" style="color:var(--b)">SafeSign deep scan</a>.</div>`}
@@ -354,7 +378,7 @@ async function tokenPage(mint) {
       <div class="card"><h3>👥 Holder concentration <span class="r">${s.top10 != null ? 'Top 10: ' + s.top10.toFixed(1) + '%' : ''}</span></h3>${sv && s.topHolders?.length ? s.topHolders.slice(0, 10).map(h => `<div class="hbar ${h.insider ? 'ins' : ''}"><a class="w" href="https://solscan.io/account/${esc(h.owner)}" target="_blank" rel="noopener">${esc(short(h.owner))}</a><div class="t"><i style="width:${Math.min(100, h.pct * 3)}%"></i></div><span class="mono" style="width:50px;text-align:right">${h.pct.toFixed(2)}%</span></div>`).join('') + `<p class="dim" style="font-size:11px;margin:8px 0 0">Excludes AMM pools, lockers and known program accounts. Red = flagged insider.</p>` : '<div class="mut">No holder data.</div>'}</div>
       <div class="card"><h3>🔔 Price alert</h3><form class="alertform" id="alertForm"><select id="adir"><option value="above">Above</option><option value="below">Below</option></select><input id="aprice" inputmode="decimal" placeholder="${m.priceUsd ? 'e.g. ' + (+(m.priceUsd * 1.5).toPrecision(3)) : 'price USD'}" required><button class="btn pri" style="padding:8px 12px">Set</button></form>
         <div id="myAlerts" style="margin-top:8px"></div></div>
-    </div>
+    </div>` : `<div class="stack"><div class="card"><h3>🛡 Safety & intel</h3><div class="mut">Safety score, OG/VAMP, dev wallet, holders and alerts are Solana-only for now. Trading data for ${esc(chainOf(chain).name)} comes from DexScreener and GeckoTerminal.</div></div></div>`}
   </div>`;
   const mc = m.mcap ?? m.fdv ?? d.pump?.usdMcap ?? null;
   const drawBig = () => {
@@ -365,10 +389,10 @@ async function tokenPage(mint) {
   $('#pbig').onclick = () => { LS.set('bigMode', LS.get('bigMode', 'price') === 'mcap' ? 'price' : 'mcap'); drawBig(); };
   $('#pbig').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#pbig').click(); } };
   app.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = 'Copied ✓'; setTimeout(() => (b.textContent = 'Copy CA'), 1500); });
-  $('#wbtn').onclick = () => { toggleWatch({ mint, symbol: d.symbol, icon: d.icon }); $('#wbtn').textContent = isWatched(mint) ? '★ Watching' : '☆ Watchlist'; };
+  if ($('#wbtn')) $('#wbtn').onclick = () => { toggleWatch({ mint, symbol: d.symbol, icon: d.icon }); $('#wbtn').textContent = isWatched(mint) ? '★ Watching' : '☆ Watchlist'; };
   const drawMy = () => { const mine = alerts.filter(a => a.mint === mint); $('#myAlerts').innerHTML = mine.map(a => `<div class="al"><span class="mut">${a.dir}</span><span class="mono">${price(a.price)}</span><button class="x" data-del="${a.id}">✕</button></div>`).join(''); $('#myAlerts').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { alerts = alerts.filter(a => a.id != b.dataset.del); LS.set('alerts', alerts); renderAlertCount(); drawMy(); }); };
-  drawMy();
-  $('#alertForm').onsubmit = e => {
+  if ($('#myAlerts')) drawMy();
+  if ($('#alertForm')) $('#alertForm').onsubmit = e => {
     e.preventDefault(); const p = parseFloat($('#aprice').value); if (!(p > 0)) return;
     alerts.push({ id: Date.now(), mint, symbol: d.symbol, dir: $('#adir').value, price: p }); LS.set('alerts', alerts); renderAlertCount(); drawMy(); $('#aprice').value = '';
     if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
@@ -394,10 +418,10 @@ function ogCard(o, sym, flipped) {
 }
 async function loadTrades(pool, sym) {
   try {
-    const { rows } = await api('/api/trades/' + pool);
+    const { rows } = await api('/api/trades/' + encodeURIComponent(pool) + (CUR_CHAIN !== 'solana' ? '?chain=' + CUR_CHAIN : ''));
     const el = $('#trades'); if (!el) return;
     $('#trUpd').textContent = 'live · 20s';
-    el.innerHTML = rows.length ? `<table><thead><tr><th class="l">Time</th><th class="l">Type</th><th>USD</th><th>${esc(sym)}</th><th>Price</th><th class="l">Wallet</th></tr></thead><tbody>${rows.slice(0, 25).map(t => `<tr onclick="window.open('https://solscan.io/tx/${esc(t.tx)}','_blank')"><td class="l dim">${age(Date.parse(t.at))} ago</td><td class="l ${t.kind === 'buy' ? 'up' : 'dn'}" style="font-weight:700">${t.kind === 'buy' ? 'Buy' : 'Sell'}</td><td class="${t.kind === 'buy' ? 'up' : 'dn'}">${usd(t.usd, 2)}</td><td class="mono">${t.tokenAmount != null ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(t.tokenAmount) : '—'}</td><td class="mono">${price(t.price)}</td><td class="l mono"><a style="color:var(--b)" href="https://solscan.io/account/${esc(t.wallet)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(short(t.wallet))}</a></td></tr>`).join('')}</tbody></table>` : '<div class="mut">No recent trades reported.</div>';
+    el.innerHTML = rows.length ? `<table><thead><tr><th class="l">Time</th><th class="l">Type</th><th>USD</th><th>${esc(sym)}</th><th>Price</th><th class="l">Wallet</th></tr></thead><tbody>${rows.slice(0, 25).map(t => `<tr ${CUR_CHAIN === 'solana' ? `onclick="window.open('https://solscan.io/tx/${esc(t.tx)}','_blank')"` : ''}><td class="l dim">${age(Date.parse(t.at))} ago</td><td class="l ${t.kind === 'buy' ? 'up' : 'dn'}" style="font-weight:700">${t.kind === 'buy' ? 'Buy' : 'Sell'}</td><td class="${t.kind === 'buy' ? 'up' : 'dn'}">${usd(t.usd, 2)}</td><td class="mono">${t.tokenAmount != null ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(t.tokenAmount) : '—'}</td><td class="mono">${price(t.price)}</td><td class="l mono"><a style="color:var(--b)" href="https://solscan.io/account/${esc(t.wallet)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(short(t.wallet))}</a></td></tr>`).join('')}</tbody></table>` : '<div class="mut">No recent trades reported.</div>';
   } catch (e) { const el = $('#trades'); if (el && !el.querySelector('table')) el.innerHTML = `<div class="mut">Trades unavailable (${esc(e.message)}).</div>`; }
 }
 const candleCache = {};
@@ -421,7 +445,7 @@ function initChart(pool, lastPrice) {
   let fallbackShown = false;
   const showFallback = msg => {
     if (fallbackShown) return; fallbackShown = true; const lb = $('#chartSrc'); if (lb) lb.textContent = 'DexScreener chart (fallback)';
-    overlay(`<iframe src="https://dexscreener.com/solana/${pool}?embed=1&loadChartSettings=0&trades=0&tabs=0&info=0&chartLeftToolbar=0&chartTheme=dark&theme=dark&chartStyle=1&chartType=usd&interval=${({ '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': '1D' })[tf]}" title="DexScreener chart" loading="lazy" referrerpolicy="no-referrer" style="position:absolute;inset:0;width:100%;height:100%;border:0"></iframe>
+    overlay(`<iframe src="https://dexscreener.com/${CUR_CHAIN}/${pool}?embed=1&loadChartSettings=0&trades=0&tabs=0&info=0&chartLeftToolbar=0&chartTheme=dark&theme=dark&chartStyle=1&chartType=usd&interval=${({ '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': '1D' })[tf]}" title="DexScreener chart" loading="lazy" referrerpolicy="no-referrer" style="position:absolute;inset:0;width:100%;height:100%;border:0"></iframe>
       <div class="fb-note">Fallback chart (DexScreener) · ${esc(msg)} <button class="tf" id="retryChart">Retry ↻</button></div>`);
     $('#retryChart').onclick = () => { fallbackShown = false; load(true, 0); };
   };
@@ -431,10 +455,10 @@ function initChart(pool, lastPrice) {
   };
   const load = async (fit, attempt = 0) => {
     app.querySelectorAll('[data-tf]').forEach(b => b.classList.toggle('on', b.dataset.tf === tf));
-    const key = pool + ':' + tf; const mine = tf;
+    const key = CUR_CHAIN + ':' + pool + ':' + tf; const mine = tf;
     if (fit) { if (candleCache[key]) { draw(candleCache[key], true); overlay(''); } else if (!fallbackShown) overlay(skel); }
     try {
-      const r = await fetch(`/api/ohlcv/${pool}?tf=${tf}`); const j = await r.json().catch(() => ({}));
+      const r = await fetch(`/api/ohlcv/${encodeURIComponent(pool)}?tf=${tf}${CUR_CHAIN !== 'solana' ? '&chain=' + CUR_CHAIN : ''}`); const j = await r.json().catch(() => ({}));
       if (mine !== tf) return;
       if (!r.ok) throw Object.assign(new Error(j.error || 'HTTP ' + r.status), { fallback: j.fallback });
       if (!j.candles.length) { if (fit) showFallback('no candles from GeckoTerminal yet'); return; }

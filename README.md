@@ -63,6 +63,9 @@ When a coin pumps, vamps relaunch the same name/ticker. TrenchScope finds every 
 - On the Scope orders go to **review**; the owner approves/rejects at **/admin** (`ADMIN_PASSWORD` env, timing-safe compare, lockout after 10 failures). Only approved info is shown.
 - Orders persist in `data/orders.json` (`ORDERS_FILE` to change).
 
+## 🌐 Multi-chain
+Chain picker (bottom sheet with search) — Solana (default) plus Robinhood, BNB Chain, Ethereum, Base, Polygon, PulseChain, NEAR, Avalanche, Sonic, Starknet, Monad, World Chain, Hyperliquid, HyperEVM, Tron, Hedera, TON, Cronos, Sui, XRPL, Ink, Arbitrum, Abstract, Optimism, ICP, zkSync, Linea, Plasma, Injective and "All chains". Trending / New / Gainers and token pages (chart, trades, pools) use GeckoTerminal networks + DexScreener chain IDs (`lib/chains.js`). MultiversX is skipped (no GeckoTerminal network). Safety score, OG/VAMP/VV, dev wallet, holders, alerts, Jupiter, SafeSign and On the Scope stay Solana-only.
+
 ## Data sources (all free, no keys)
 DexScreener (`/tokens/v1`, `/latest/dex/search`, token-boosts, token-profiles) · GeckoTerminal (trending/new pools, OHLCV, trades) · pump.fun frontend API · RugCheck report API · GoPlus Solana token security · Solana public RPC (`getBalance`). Nothing shown in the UI is invented — when a source has no value the UI shows "—".
 

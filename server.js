@@ -4,6 +4,7 @@ const compression = require('compression');
 const path = require('path');
 const { scoreReport } = require('./lib/safety');
 const { createOG } = require('./lib/og');
+const chains = require('./lib/chains');
 const pay = require('./lib/payments');
 const crypto = require('crypto');
 const QRCode = require('qrcode');
@@ -97,13 +98,13 @@ function fromDex(p) {
     change: { m5: num(p.priceChange?.m5), h1: num(p.priceChange?.h1), h6: num(p.priceChange?.h6), h24: num(p.priceChange?.h24) },
     volume: { m5: num(p.volume?.m5), h1: num(p.volume?.h1), h6: num(p.volume?.h6), h24: num(p.volume?.h24) },
     txns: p.txns || null, liquidity: num(p.liquidity?.usd), mcap: num(p.marketCap), fdv: num(p.fdv),
-    createdAt: p.pairCreatedAt || null, boosts: p.boosts?.active || 0,
+    createdAt: p.pairCreatedAt || null, boosts: p.boosts?.active || 0, chain: p.chainId,
     websites: p.info?.websites || [], socials: p.info?.socials || [], labels: p.labels || [], src: 'dexscreener',
   };
 }
 function fromGecko(pool) {
   const a = pool.attributes; const rel = pool.relationships;
-  const mint = rel.base_token.data.id.replace(/^solana_/, '');
+  const { net, addr: mint } = chains.splitGtId(rel.base_token.data.id);
   const [sym] = (a.name || '').split(' / ');
   const tx = a.transactions || {};
   const t = k => tx[k] ? { buys: tx[k].buys, sells: tx[k].sells } : undefined;
@@ -114,7 +115,7 @@ function fromGecko(pool) {
     volume: { m5: num(a.volume_usd?.m5), h1: num(a.volume_usd?.h1), h6: num(a.volume_usd?.h6), h24: num(a.volume_usd?.h24) },
     txns: { m5: t('m5'), h1: t('h1'), h6: t('h6'), h24: t('h24') }, liquidity: num(a.reserve_in_usd),
     mcap: num(a.market_cap_usd), fdv: num(a.fdv_usd), createdAt: a.pool_created_at ? Date.parse(a.pool_created_at) : null,
-    boosts: 0, websites: [], socials: [], labels: [], src: 'geckoterminal',
+    boosts: 0, websites: [], socials: [], labels: [], src: 'geckoterminal', chain: chains.byGt[net]?.id || net,
   };
 }
 
@@ -260,7 +261,52 @@ const ok = (res, data, maxAge = 15) => { res.set('Cache-Control', `public, max-a
 const fail = (res, e, code = 502) => res.status(code).json({ error: e.message || String(e) });
 const isMint = s => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s || '');
 
+// ---------- multi-chain (non-Solana) lists: GeckoTerminal pools per network, enriched by DexScreener ----------
+async function dexTokensOn(chain, addrs) {
+  const out = new Map(); const uniq = [...new Set(addrs)].filter(Boolean);
+  for (let i = 0; i < uniq.length; i += 30) {
+    const chunk = uniq.slice(i, i + 30);
+    const pairs = await cached(`dst:${chain}:` + chunk.join(','), 45e3, () => getJSON(`https://api.dexscreener.com/tokens/v1/${chain}/${chunk.map(encodeURIComponent).join(',')}`, { prio: PRIO.low })).catch(() => []);
+    const lc = new Set(chunk.map(a => a.toLowerCase()));
+    for (const p of pairs || []) {
+      if (p.chainId !== chain || !lc.has(String(p.baseToken.address).toLowerCase())) continue;
+      const k = p.baseToken.address.toLowerCase(); const cur = out.get(k);
+      if (!cur || (p.liquidity?.usd || 0) > (cur.liquidity?.usd || 0)) out.set(k, p);
+    }
+  }
+  return out;
+}
+async function chainList(kind, chain) {
+  return cached(`clist:${kind}:${chain}`, 90e3, async () => {
+    if (kind === 'gainers') {
+      const [t, n] = await Promise.all([chainList('trending', chain), chainList('new', chain)]);
+      const m = new Map(); [...t, ...n].forEach(r => m.set(r.chain + r.mint, r));
+      return [...m.values()].filter(r => (r.liquidity || 0) >= 5000 && r.change?.h24 != null).sort((a, b) => b.change.h24 - a.change.h24);
+    }
+    const ep = kind === 'new' ? 'new_pools' : 'trending_pools';
+    const base = chain === 'all' ? `https://api.geckoterminal.com/api/v2/networks/${ep}` : `https://api.geckoterminal.com/api/v2/networks/${chains.byId[chain].gt}/${ep}`;
+    const pools = [];
+    for (let page = 1; page <= 2; page++) {
+      try { const d = await getJSON(`${base}?page=${page}`, { prio: PRIO.normal }); pools.push(...(d.data || [])); } catch { break; }
+    }
+    const seen = new Set();
+    let rows = pools.map(fromGecko).filter(r => { const k = r.chain + r.mint; if (seen.has(k)) return false; seen.add(k); return true; });
+    const groups = {}; for (const r of rows) if (chains.byId[r.chain]) (groups[r.chain] = groups[r.chain] || []).push(r.mint);
+    const ds = {}; for (const [c, a] of Object.entries(groups)) ds[c] = await dexTokensOn(c, a);
+    rows = rows.map(r => { const p = ds[r.chain]?.get(r.mint.toLowerCase()); if (!p) return r; const d = fromDex(p); return { ...d, createdAt: d.createdAt || r.createdAt }; });
+    if (kind === 'new') rows.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    return rows;
+  });
+}
+app.get('/api/chains', (req, res) => ok(res, { chains: chains.SUPPORTED.map(({ id, name, color }) => ({ id, name, color })), skipped: chains.CHAINS.filter(c => !c.gt).map(c => c.name) }, 3600));
 app.get('/api/list/:kind', async (req, res) => {
+  const chain = String(req.query.chain || 'solana');
+  if (chain !== 'solana') {
+    if (!['trending', 'new', 'gainers'].includes(req.params.kind)) return fail(res, new Error('list not available on this chain'), 404);
+    if (chain !== 'all' && !chains.byId[chain]) return fail(res, new Error('unsupported chain'), 404);
+    try { const rows = await chainList(req.params.kind, chain); res.set('Cache-Control', 'no-cache'); return res.json({ updatedAt: store.get(`clist:${req.params.kind}:${chain}`)?.at || Date.now(), rows: rows.map(r => ({ ...r, safety: null, og: null, promo: 0, scope: false })) }); }
+    catch (e) { return fail(res, e); }
+  }
   const fn = lists[req.params.kind];
   if (!fn) return fail(res, new Error('unknown list'), 404);
   try {
@@ -299,8 +345,24 @@ app.get('/api/search', async (req, res) => {
     ok(res, { rows: rows.map(r => withIntel(r)) }, 30);
   } catch (e) { fail(res, e); }
 });
+const isAddr = s => /^[A-Za-z0-9:._\-]{3,160}$/.test(s || '');
+async function chainToken(chain, addr, res) {
+  const c = chains.byId[chain]; if (!c || !isAddr(addr)) return fail(res, new Error('invalid chain or address'), 400);
+  try {
+    const pairs = await cached(`dsp:${chain}:${addr}`, 30e3, () => getJSON(`https://api.dexscreener.com/tokens/v1/${chain}/${encodeURIComponent(addr)}`, { prio: PRIO.high })).catch(() => []);
+    const ps = (pairs || []).filter(p => p.chainId === chain && String(p.baseToken.address).toLowerCase() === addr.toLowerCase()).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+    let main = ps[0] ? fromDex(ps[0]) : null;
+    if (!main) {
+      const g = await cached(`gtt:${chain}:${addr}`, 60e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/${c.gt}/tokens/${encodeURIComponent(addr)}/pools?page=1`, { prio: PRIO.high })).catch(() => null);
+      if (g?.data?.[0]) main = fromGecko(g.data[0]);
+    }
+    if (!main) return fail(res, new Error('Token not found on this chain'), 404);
+    ok(res, { mint: addr, chain, main, pairs: ps.slice(0, 8).map(fromDex), safety: { unavailable: true, error: 'Safety scan is Solana-only for now' }, dev: null, pump: null, og: null, flippedBy: [], scope: null, promo: 0, name: main.name, symbol: main.symbol, icon: main.icon }, 20);
+  } catch (e) { fail(res, e); }
+}
 app.get('/api/token/:mint', async (req, res) => {
   const { mint } = req.params;
+  if (req.query.chain && req.query.chain !== 'solana') return chainToken(String(req.query.chain), mint, res);
   if (!isMint(mint)) return fail(res, new Error('invalid mint'), 400);
   try {
     const [pairs, safety, pump] = await Promise.all([
@@ -338,14 +400,14 @@ app.get('/api/token/:mint', async (req, res) => {
 const TF = { '1m': ['minute', 1], '5m': ['minute', 5], '15m': ['minute', 15], '1h': ['hour', 1], '4h': ['hour', 4], '1d': ['day', 1] };
 // OHLCV: serve cached candles instantly (stale-while-revalidate), user requests get top priority,
 // and if GeckoTerminal can't answer within a deadline we tell the UI to use its fallback chart.
-const ohlcvUrl = (pool, tf) => `https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/ohlcv/${tf[0]}?aggregate=${tf[1]}&limit=300&currency=usd`;
+const ohlcvUrl = (pool, tf, net = 'solana') => `https://api.geckoterminal.com/api/v2/networks/${net}/pools/${pool}/ohlcv/${tf[0]}?aggregate=${tf[1]}&limit=300&currency=usd`;
 const toCandles = d => (d.data?.attributes?.ohlcv_list || []).map(([t, o, h, l, c, v]) => ({ time: t, open: o, high: h, low: l, close: c, volume: v })).sort((a, b) => a.time - b.time);
-function fetchOhlcv(pool, tfKey, prio) {
-  const key = `ohlcv:${pool}:${tfKey}`;
+function fetchOhlcv(pool, tfKey, prio, net = 'solana') {
+  const key = `ohlcv:${net === 'solana' ? '' : net + ':'}${pool}:${tfKey}`;
   const hit = store.get(key);
-  if (prio >= PRIO.high) bump(ohlcvUrl(pool, TF[tfKey]), prio);
+  if (prio >= PRIO.high) bump(ohlcvUrl(pool, TF[tfKey], net), prio);
   if (hit?.pending) return hit.pending;
-  const pending = getJSON(ohlcvUrl(pool, TF[tfKey]), { prio, timeout: 12000 }).then(d => {
+  const pending = getJSON(ohlcvUrl(pool, TF[tfKey], net), { prio, timeout: 12000 }).then(d => {
     const v = toCandles(d); store.set(key, { value: v, at: Date.now() }); return v;
   }).catch(e => { if (hit?.value) store.set(key, { value: hit.value, at: hit.at }); else store.delete(key); throw e; });
   store.set(key, { ...(hit || {}), pending });
@@ -353,18 +415,19 @@ function fetchOhlcv(pool, tfKey, prio) {
 }
 app.get('/api/ohlcv/:pool', async (req, res) => {
   const tfKey = TF[req.query.tf] ? req.query.tf : '5m'; const { pool } = req.params;
-  if (!isMint(pool)) return fail(res, new Error('invalid pool'), 400);
-  const key = `ohlcv:${pool}:${tfKey}`;
+  const net = req.query.chain && req.query.chain !== 'solana' ? chains.byId[req.query.chain]?.gt : 'solana';
+  if (!net || !(net === 'solana' ? isMint(pool) : isAddr(pool))) return fail(res, new Error('invalid pool'), 400);
+  const key = `ohlcv:${net === 'solana' ? '' : net + ':'}${pool}:${tfKey}`;
   const hit = store.get(key);
   const age = hit?.value ? Date.now() - hit.at : Infinity;
   if (hit?.value && age < 30 * 60e3) {
-    if (age > 45e3) fetchOhlcv(pool, tfKey, PRIO.high).catch(() => {}); // refresh in background
+    if (age > 45e3) fetchOhlcv(pool, tfKey, PRIO.high, net).catch(() => {}); // refresh in background
     res.set('Cache-Control', 'no-cache');
     return res.json({ candles: hit.value, cachedAgeSec: Math.round(age / 1000), source: 'geckoterminal' });
   }
   const deadline = new Promise(r => setTimeout(() => r('timeout'), 7000));
   try {
-    const v = await Promise.race([fetchOhlcv(pool, tfKey, PRIO.high), deadline]);
+    const v = await Promise.race([fetchOhlcv(pool, tfKey, PRIO.high, net), deadline]);
     if (v === 'timeout') return res.status(503).json({ error: 'Chart data is busy, using fallback chart', fallback: true, queue: gtQueueDepth() });
     res.set('Cache-Control', 'public, max-age=30'); res.json({ candles: v, cachedAgeSec: 0, source: 'geckoterminal' });
   } catch (e) { res.status(503).json({ error: e.message, fallback: true }); }
@@ -394,9 +457,10 @@ async function prefetchOhlcv() {
 }
 app.get('/api/trades/:pool', async (req, res) => {
   const { pool } = req.params;
-  if (!isMint(pool)) return fail(res, new Error('invalid pool'), 400);
+  const net = req.query.chain && req.query.chain !== 'solana' ? chains.byId[req.query.chain]?.gt : 'solana';
+  if (!net || !(net === 'solana' ? isMint(pool) : isAddr(pool))) return fail(res, new Error('invalid pool'), 400);
   try {
-    const d = await cached('trades:' + pool, 20e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/trades`, { prio: PRIO.high - 1, timeout: 10000 }));
+    const d = await cached(`trades:${net}:` + pool, 20e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/${net}/pools/${pool}/trades`, { prio: PRIO.high - 1, timeout: 10000 }));
     const rows = (d.data || []).slice(0, 60).map(t => {
       const a = t.attributes;
       return { tx: a.tx_hash, wallet: a.tx_from_address, kind: a.kind, at: a.block_timestamp, usd: num(a.volume_in_usd),
@@ -469,7 +533,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
-app.get(/^\/(token\/.*|advertise|order\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get(/^\/(token\/.*|advertise|order\/.*|c\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 if (require.main === module) {
   app.listen(PORT, () => console.log(`TrenchScope on http://localhost:${PORT}`));
