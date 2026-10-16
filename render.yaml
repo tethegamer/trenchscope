@@ -14,6 +14,6 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
-      # Owner wallet for Solana Pay (defaults to E4gJZ7k2eZDHNxZMWdnXu5XytwpkcYbeLzXXkKMMS8Qv)
-      - key: SOL_RECIPIENT
-        value: E4gJZ7k2eZDHNxZMWdnXu5XytwpkcYbeLzXXkKMMS8Qv
+      # Owner wallet for Solana Pay (defaults to EL63Jz5kAamGAFtwiunvCJsFcAZWGUmagPTHZTrcPVv6)
+      - key: PAY_WALLET
+        value: EL63Jz5kAamGAFtwiunvCJsFcAZWGUmagPTHZTrcPVv6

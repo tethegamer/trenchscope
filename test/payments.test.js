@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs'); const os = require('os'); const path = require('path');
 process.env.ORDERS_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ts-')), 'orders.json');
 // make the fixture's USDC recipient act as "owner wallet" for the end-to-end order flow
-process.env.SOL_RECIPIENT = '5ipJ3j8U6zwe1c3oKz53zFyxPgfM2vtPujty7gNryFyR';
+process.env.PAY_WALLET = '5ipJ3j8U6zwe1c3oKz53zFyxPgfM2vtPujty7gNryFyR';
 const pay = require('../lib/payments');
 
 const USDC_SIG = '47kLJu4bYpy5MMMD5apj9i24PDiQBhv1Ujed865foFex5NfamqPoTbo3nBonJaCKx4QCqcweTzteEPXnahx9d6ZF';
@@ -14,7 +14,7 @@ const usdcTx = require('./fixtures/usdc-transfer.json'); // 6000 USDC -> 5ipJ3j8
 const solTx = require('./fixtures/sol-transfer.json');   // 0.2477784 SOL -> FDV1co3E...
 const U = { recipient: '5ipJ3j8U6zwe1c3oKz53zFyxPgfM2vtPujty7gNryFyR', reference: '7KJjY7rArbydeLBF7gQ5LdqXRKRYyPArT99NEctsHsgU', currency: 'USDC' };
 const S = { recipient: 'FDV1co3EJb9tPJYMp25GKYiMAhGmdZmgDLKAUdgeGZU6', reference: '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9', currency: 'SOL' };
-const OWNER = 'E4gJZ7k2eZDHNxZMWdnXu5XytwpkcYbeLzXXkKMMS8Qv';
+const OWNER = 'EL63Jz5kAamGAFtwiunvCJsFcAZWGUmagPTHZTrcPVv6';
 const MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 
 test('USDC: accepts correct recipient + amount, rejects underpayment', () => {

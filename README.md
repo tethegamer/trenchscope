@@ -71,7 +71,7 @@ npm install
 npm start          # http://localhost:3000  (PORT env to change)
 npm test           # payment verification (real historical txs) + OG tests + live API smoke test
 ```
-Env: `SOLANA_RPC` (default public mainnet RPC), `ADMIN_PASSWORD` (enables /admin), `SOL_RECIPIENT` (owner wallet, default `E4gJZ7k2eZDHNxZMWdnXu5XytwpkcYbeLzXXkKMMS8Qv`), `ORDERS_FILE`, `OG_CACHE_FILE`.
+Env: `SOLANA_RPC` (default public mainnet RPC), `ADMIN_PASSWORD` (enables /admin), `PAY_WALLET` (owner wallet, default `EL63Jz5kAamGAFtwiunvCJsFcAZWGUmagPTHZTrcPVv6`), `ORDERS_FILE`, `OG_CACHE_FILE`.
 
 ## Deploy (Render free)
 Push the repo, then **New → Blueprint** in Render and select it — `render.yaml` sets up a free Node web service with a `/api/health` check.
