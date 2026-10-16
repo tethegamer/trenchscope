@@ -525,10 +525,10 @@ function glossary(force) {
   $('#gloss')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" id="gloss"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="glT">
     <h2 id="glT">Quick glossary</h2>
-    <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate the bonding curve (migrate to PumpSwap/Raydium).</dd>
+    <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate — i.e. migrate from its launchpad to open trading.</dd>
     <dt><span class="chip vamp">VAMP</span></dt><dd>A later launch reusing an OG's name that has also graduated.</dd>
     <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 5x+ the OG's. It can lose the badge if it drops back under 5x.</dd></dl>
-    <p class="dim" style="font-size:12px;margin:-6px 0 16px">Tokens still on the pump.fun bonding curve get no OG/VAMP tag.</p>
+    <p class="dim" style="font-size:12px;margin:-6px 0 16px">Tokens that haven't graduated from their launchpad yet get no OG/VAMP tag.</p>
     <div class="mbtns"><button class="btn" id="glNo">Don't show again</button><button class="btn pri" id="glOk">Okay</button></div></div></div>`);
   const close = () => $('#gloss')?.remove();
   $('#glOk').onclick = () => { sessionStorage.setItem('ts:glossarySeen', '1'); close(); };
