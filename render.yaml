@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: trenchscope
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Optional: a private RPC (Helius/Triton/etc.) for dev-wallet SOL balances
+      - key: SOLANA_RPC
+        sync: false

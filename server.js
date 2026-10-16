@@ -1,0 +1,336 @@
+// TrenchScope — Solana token screener with safety intel on every row.
+const express = require('express');
+const compression = require('compression');
+const path = require('path');
+const { scoreReport } = require('./lib/safety');
+
+const PORT = process.env.PORT || 3000;
+const RPC = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
+const UA = { 'User-Agent': 'TrenchScope/1.0 (+https://github.com/tethegamer/trenchscope)', Accept: 'application/json' };
+
+// ---------- cache with in-flight dedupe + stale-on-error ----------
+const store = new Map();
+async function cached(key, ttlMs, fn) {
+  const hit = store.get(key);
+  const now = Date.now();
+  if (hit && hit.value !== undefined && now - hit.at < ttlMs) return hit.value;
+  if (hit && hit.pending) return hit.pending;
+  const pending = (async () => {
+    try {
+      const value = await fn();
+      store.set(key, { value, at: Date.now() });
+      return value;
+    } catch (e) {
+      if (hit && hit.value !== undefined) { store.set(key, { value: hit.value, at: hit.at }); return hit.value; }
+      store.delete(key);
+      throw e;
+    }
+  })();
+  store.set(key, { ...(hit || {}), pending });
+  return pending;
+}
+setInterval(() => { // evict entries older than 1h
+  const cut = Date.now() - 3600e3;
+  for (const [k, v] of store) if (!v.pending && v.at < cut) store.delete(k);
+}, 600e3).unref();
+
+// ---------- rate-limited fetch per host ----------
+const limits = { 'api.geckoterminal.com': 2200, 'api.rugcheck.xyz': 700, 'api.dexscreener.com': 220, default: 100 };
+const lastCall = {};
+const queues = {};
+function throttle(host) {
+  const gap = limits[host] ?? limits.default;
+  const prev = queues[host] || Promise.resolve();
+  const next = prev.then(async () => {
+    const wait = (lastCall[host] || 0) + gap - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastCall[host] = Date.now();
+  });
+  queues[host] = next.catch(() => {});
+  return next;
+}
+async function getJSON(url, opts = {}, attempt = 0) {
+  try { return await getJSONOnce(url, opts); } catch (e) {
+    if (attempt < 3 && /HTTP (429|5\d\d)/.test(e.message)) { await new Promise(r => setTimeout(r, 3000 * (attempt + 1))); return getJSON(url, opts, attempt + 1); }
+    throw e;
+  }
+}
+async function getJSONOnce(url, { timeout = 15000, method = 'GET', body } = {}) {
+  const host = new URL(url).host;
+  await throttle(host);
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeout);
+  try {
+    const r = await fetch(url, { method, body, headers: { ...UA, ...(body ? { 'Content-Type': 'application/json' } : {}) }, signal: ctl.signal });
+    if (!r.ok) throw new Error(`${host} HTTP ${r.status}`);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+
+// ---------- normalizers ----------
+const num = v => (v === null || v === undefined || v === '' || isNaN(+v) ? null : +v);
+function fromDex(p) {
+  return {
+    mint: p.baseToken.address, symbol: p.baseToken.symbol, name: p.baseToken.name,
+    pair: p.pairAddress, dex: p.dexId, quote: p.quoteToken?.symbol,
+    icon: p.info?.imageUrl || null, header: p.info?.header || null,
+    priceUsd: num(p.priceUsd), priceNative: num(p.priceNative),
+    change: { m5: num(p.priceChange?.m5), h1: num(p.priceChange?.h1), h6: num(p.priceChange?.h6), h24: num(p.priceChange?.h24) },
+    volume: { m5: num(p.volume?.m5), h1: num(p.volume?.h1), h6: num(p.volume?.h6), h24: num(p.volume?.h24) },
+    txns: p.txns || null, liquidity: num(p.liquidity?.usd), mcap: num(p.marketCap), fdv: num(p.fdv),
+    createdAt: p.pairCreatedAt || null, boosts: p.boosts?.active || 0,
+    websites: p.info?.websites || [], socials: p.info?.socials || [], labels: p.labels || [], src: 'dexscreener',
+  };
+}
+function fromGecko(pool) {
+  const a = pool.attributes; const rel = pool.relationships;
+  const mint = rel.base_token.data.id.replace(/^solana_/, '');
+  const [sym] = (a.name || '').split(' / ');
+  const tx = a.transactions || {};
+  const t = k => tx[k] ? { buys: tx[k].buys, sells: tx[k].sells } : undefined;
+  return {
+    mint, symbol: sym, name: sym, pair: a.address, dex: rel.dex?.data?.id, quote: (a.name || '').split(' / ')[1],
+    icon: null, priceUsd: num(a.base_token_price_usd), priceNative: num(a.base_token_price_native_currency),
+    change: { m5: num(a.price_change_percentage?.m5), h1: num(a.price_change_percentage?.h1), h6: num(a.price_change_percentage?.h6), h24: num(a.price_change_percentage?.h24) },
+    volume: { m5: num(a.volume_usd?.m5), h1: num(a.volume_usd?.h1), h6: num(a.volume_usd?.h6), h24: num(a.volume_usd?.h24) },
+    txns: { m5: t('m5'), h1: t('h1'), h6: t('h6'), h24: t('h24') }, liquidity: num(a.reserve_in_usd),
+    mcap: num(a.market_cap_usd), fdv: num(a.fdv_usd), createdAt: a.pool_created_at ? Date.parse(a.pool_created_at) : null,
+    boosts: 0, websites: [], socials: [], labels: [], src: 'geckoterminal',
+  };
+}
+
+// ---------- data sources ----------
+async function dexTokens(mints) {
+  const out = new Map();
+  const uniq = [...new Set(mints)].filter(Boolean);
+  for (let i = 0; i < uniq.length; i += 30) {
+    const chunk = uniq.slice(i, i + 30);
+    const key = 'dst:' + chunk.join(',');
+    let pairs = [];
+    try { pairs = await cached(key, 45e3, () => getJSON(`https://api.dexscreener.com/tokens/v1/solana/${chunk.join(',')}`)); } catch { continue; }
+    for (const p of pairs || []) {
+      if (p.chainId !== 'solana') continue;
+      const m = p.baseToken.address;
+      if (!chunk.includes(m)) continue;
+      const cur = out.get(m);
+      if (!cur || (p.liquidity?.usd || 0) > (cur.liquidity?.usd || 0)) out.set(m, p);
+    }
+  }
+  return out;
+}
+async function geckoPools(kind, pages = 3) {
+  const all = [];
+  for (let page = 1; page <= pages; page++) {
+    try {
+      const d = await cached(`gt:${kind}:${page}`, 90e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/${kind}?page=${page}`));
+      all.push(...(d.data || []));
+    } catch { break; }
+  }
+  return all.map(fromGecko);
+}
+const SKIP = new Set(['So11111111111111111111111111111111111111112', 'EPjFWdd5AufLSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJrfKbg1RKUuu1xDWDH7q8zWZXbFmVCx']);
+async function enrich(base) {
+  const seen = new Set(); const list = [];
+  for (const r of base) { if (!SKIP.has(r.mint) && !seen.has(r.mint)) { seen.add(r.mint); list.push(r); } }
+  const ds = await dexTokens(list.map(r => r.mint));
+  return list.map(r => {
+    const p = ds.get(r.mint);
+    if (!p) return r;
+    const d = fromDex(p);
+    // keep the earliest known creation time (GT pool vs DS best pair)
+    return { ...d, createdAt: d.createdAt || r.createdAt };
+  });
+}
+async function boostedMints() {
+  const [top, latest, profiles] = await Promise.all([
+    cached('ds:boost-top', 120e3, () => getJSON('https://api.dexscreener.com/token-boosts/top/v1')).catch(() => []),
+    cached('ds:boost-latest', 120e3, () => getJSON('https://api.dexscreener.com/token-boosts/latest/v1')).catch(() => []),
+    cached('ds:profiles', 120e3, () => getJSON('https://api.dexscreener.com/token-profiles/latest/v1')).catch(() => []),
+  ]);
+  const sol = a => (a || []).filter(x => x.chainId === 'solana').map(x => x.tokenAddress);
+  return { boosted: [...sol(top), ...sol(latest)], profiles: sol(profiles) };
+}
+const lists = {
+  trending: () => cached('list:trending', 60e3, async () => {
+    const [gt, b] = await Promise.all([geckoPools('trending_pools', 2), boostedMints()]);
+    const base = [...gt, ...b.boosted.map(mint => ({ mint }))];
+    return (await enrich(base)).filter(r => r.pair);
+  }),
+  new: () => cached('list:new', 45e3, async () => {
+    const [gt, b] = await Promise.all([geckoPools('new_pools', 2), boostedMints()]);
+    const base = [...gt, ...b.profiles.map(mint => ({ mint }))];
+    const rows = (await enrich(base)).filter(r => r.pair && r.createdAt);
+    return rows.sort((a, b) => b.createdAt - a.createdAt);
+  }),
+  gainers: () => cached('list:gainers', 60e3, async () => {
+    const [t, n] = await Promise.all([lists.trending(), lists.new()]);
+    const m = new Map(); [...t, ...n].forEach(r => m.set(r.mint, r));
+    return [...m.values()].filter(r => (r.liquidity || 0) >= 5000 && r.change.h24 != null).sort((a, b) => b.change.h24 - a.change.h24);
+  }),
+  pumpfun: () => cached('list:pumpfun', 45e3, async () => {
+    const d = await getJSON('https://frontend-api-v3.pump.fun/coins/currently-live?limit=60&offset=0&includeNsfw=false');
+    const base = (d || []).map(c => ({
+      mint: c.mint, symbol: c.symbol, name: c.name, icon: c.image_uri || null,
+      mcap: num(c.usd_market_cap), createdAt: c.created_timestamp || null, complete: !!c.complete,
+      replies: c.reply_count ?? null, creator: c.creator, pair: c.pump_swap_pool || c.bonding_curve || null,
+      dex: c.complete ? 'pumpswap' : 'pump.fun curve', liveViewers: c.num_participants ?? null,
+      change: {}, volume: {}, liquidity: null, priceUsd: null, src: 'pump.fun', websites: c.website ? [{ url: c.website }] : [],
+      socials: [c.twitter && { type: 'twitter', url: c.twitter }, c.telegram && { type: 'telegram', url: c.telegram }].filter(Boolean),
+    }));
+    // overlay live DexScreener stats where a DEX pair exists (keeps pump.fun-only fields)
+    const ds = await dexTokens(base.map(r => r.mint));
+    return base.map(r => { const p = ds.get(r.mint); if (!p) return r; const x = fromDex(p); return { ...r, ...x, icon: x.icon || r.icon, createdAt: r.createdAt || x.createdAt, src: 'pump.fun+dexscreener' }; });
+  }),
+};
+
+// ---------- safety (RugCheck + GoPlus) with background queue ----------
+const safetyQ = []; const queued = new Set();
+async function rugReport(mint) {
+  return cached('rc:' + mint, 15 * 60e3, () => getJSON(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, { timeout: 25000 }));
+}
+async function goplus(mint) {
+  return cached('gp:' + mint, 30 * 60e3, async () => {
+    const d = await getJSON(`https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=${mint}`);
+    return d?.result?.[mint] || null;
+  });
+}
+async function safetyFor(mint, withGoplus = false) {
+  return cached('sf:' + mint + (withGoplus ? ':gp' : ''), 15 * 60e3, async () => {
+    const [rc, gp] = await Promise.all([rugReport(mint), withGoplus ? goplus(mint).catch(() => null) : null]);
+    return scoreReport(rc, gp);
+  });
+}
+function peekSafety(mint) { const h = store.get('sf:' + mint) || store.get('sf:' + mint + ':gp'); return h && h.value; }
+function enqueue(mints) { for (const m of mints) if (m && !queued.has(m) && !peekSafety(m)) { queued.add(m); safetyQ.push(m); } }
+let workers = 0;
+async function worker() {
+  workers++;
+  while (safetyQ.length) {
+    const m = safetyQ.shift();
+    try { await safetyFor(m); } catch { store.set('sf:' + m, { value: { unavailable: true }, at: Date.now() - 13 * 60e3 }); }
+    queued.delete(m);
+  }
+  workers--;
+}
+setInterval(() => { while (workers < 2 && safetyQ.length) worker(); }, 300).unref();
+
+// ---------- Solana RPC ----------
+async function rpc(method, params) {
+  const d = await getJSON(RPC, { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  if (d.error) throw new Error(d.error.message);
+  return d.result;
+}
+
+// ---------- API ----------
+const app = express();
+app.use(compression());
+app.disable('x-powered-by');
+const ok = (res, data, maxAge = 15) => { res.set('Cache-Control', `public, max-age=${maxAge}`); res.json(data); };
+const fail = (res, e, code = 502) => res.status(code).json({ error: e.message || String(e) });
+const isMint = s => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s || '');
+
+app.get('/api/list/:kind', async (req, res) => {
+  const fn = lists[req.params.kind];
+  if (!fn) return fail(res, new Error('unknown list'), 404);
+  try {
+    const rows = await fn();
+    enqueue(rows.slice(0, 120).map(r => r.mint));
+    ok(res, { updatedAt: store.get('list:' + req.params.kind)?.at || Date.now(), rows: rows.map(r => ({ ...r, safety: peekSafety(r.mint) || null })) });
+  } catch (e) { fail(res, e); }
+});
+app.get('/api/safety', (req, res) => {
+  const mints = String(req.query.mints || '').split(',').filter(isMint).slice(0, 200);
+  enqueue(mints);
+  const out = {}; for (const m of mints) { const s = peekSafety(m); if (s) out[m] = s; }
+  ok(res, { safety: out, pending: safetyQ.length }, 5);
+});
+app.get('/api/search', async (req, res) => {
+  const q = String(req.query.q || '').trim().slice(0, 80);
+  if (!q) return ok(res, { rows: [] });
+  try {
+    const d = await cached('search:' + q.toLowerCase(), 60e3, () => getJSON(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}`));
+    const m = new Map();
+    for (const p of d.pairs || []) if (p.chainId === 'solana' && !SKIP.has(p.baseToken.address)) {
+      const c = m.get(p.baseToken.address); if (!c || (p.liquidity?.usd || 0) > (c.liquidity?.usd || 0)) m.set(p.baseToken.address, p);
+    }
+    const rows = [...m.values()].map(fromDex).slice(0, 20);
+    enqueue(rows.map(r => r.mint));
+    ok(res, { rows: rows.map(r => ({ ...r, safety: peekSafety(r.mint) || null })) }, 30);
+  } catch (e) { fail(res, e); }
+});
+app.get('/api/token/:mint', async (req, res) => {
+  const { mint } = req.params;
+  if (!isMint(mint)) return fail(res, new Error('invalid mint'), 400);
+  try {
+    const [pairs, safety, pump] = await Promise.all([
+      cached('dsp:' + mint, 30e3, () => getJSON(`https://api.dexscreener.com/tokens/v1/solana/${mint}`)).catch(() => []),
+      safetyFor(mint, true).catch(e => ({ unavailable: true, error: e.message })),
+      mint.endsWith('pump') ? cached('pf:' + mint, 60e3, () => getJSON(`https://frontend-api-v3.pump.fun/coins/${mint}`)).catch(() => null) : null,
+    ]);
+    const sol = (pairs || []).filter(p => p.chainId === 'solana' && p.baseToken.address === mint).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+    let main = sol[0] ? fromDex(sol[0]) : null;
+    if (!main) { // fall back to GeckoTerminal token pools
+      try {
+        const g = await cached('gtt:' + mint, 60e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/tokens/${mint}/pools?page=1`));
+        if (g.data?.[0]) main = fromGecko(g.data[0]);
+      } catch {}
+    }
+    let dev = null;
+    const creator = safety?.creator || pump?.creator;
+    if (creator) {
+      dev = { address: creator, holdingPct: safety?.creatorPct ?? null, otherTokens: safety?.creatorTokens ?? null, solBalance: null };
+      try { const b = await cached('bal:' + creator, 120e3, () => rpc('getBalance', [creator])); dev.solBalance = b.value / 1e9; } catch {}
+    }
+    const pumpInfo = pump ? { complete: !!pump.complete, replies: pump.reply_count ?? null, createdAt: pump.created_timestamp, usdMcap: num(pump.usd_market_cap), description: pump.description || null, image: pump.image_uri || null } : null;
+    if (!main && !pump && safety?.unavailable) return fail(res, new Error('Token not found on any data source'), 404);
+    ok(res, {
+      mint, main, pairs: sol.slice(0, 8).map(fromDex), safety, dev, pump: pumpInfo,
+      name: main?.name || safety?.name || pump?.name, symbol: main?.symbol || safety?.symbol || pump?.symbol,
+      icon: main?.icon || pump?.image_uri || null,
+    }, 20);
+  } catch (e) { fail(res, e); }
+});
+const TF = { '1m': ['minute', 1], '5m': ['minute', 5], '15m': ['minute', 15], '1h': ['hour', 1], '4h': ['hour', 4], '1d': ['day', 1] };
+app.get('/api/ohlcv/:pool', async (req, res) => {
+  const tf = TF[req.query.tf] || TF['5m']; const { pool } = req.params;
+  if (!isMint(pool)) return fail(res, new Error('invalid pool'), 400);
+  try {
+    const d = await cached(`ohlcv:${pool}:${req.query.tf}`, 45e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/ohlcv/${tf[0]}?aggregate=${tf[1]}&limit=300&currency=usd`));
+    const list = (d.data?.attributes?.ohlcv_list || []).map(([t, o, h, l, c, v]) => ({ time: t, open: o, high: h, low: l, close: c, volume: v })).sort((a, b) => a.time - b.time);
+    ok(res, { candles: list }, 30);
+  } catch (e) { fail(res, e); }
+});
+app.get('/api/trades/:pool', async (req, res) => {
+  const { pool } = req.params;
+  if (!isMint(pool)) return fail(res, new Error('invalid pool'), 400);
+  try {
+    const d = await cached('trades:' + pool, 20e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/trades`));
+    const rows = (d.data || []).slice(0, 60).map(t => {
+      const a = t.attributes;
+      return { tx: a.tx_hash, wallet: a.tx_from_address, kind: a.kind, at: a.block_timestamp, usd: num(a.volume_in_usd),
+        tokenAmount: num(a.kind === 'buy' ? a.to_token_amount : a.from_token_amount), price: num(a.kind === 'buy' ? a.price_to_in_usd : a.price_from_in_usd) };
+    });
+    ok(res, { rows }, 15);
+  } catch (e) { fail(res, e); }
+});
+app.get('/api/prices', async (req, res) => {
+  const mints = String(req.query.mints || '').split(',').filter(isMint).slice(0, 60);
+  try {
+    const ds = await dexTokens(mints); const out = {};
+    for (const [m, p] of ds) { const d = fromDex(p); out[m] = { priceUsd: d.priceUsd, change: d.change, symbol: d.symbol, icon: d.icon, mcap: d.mcap, liquidity: d.liquidity, pair: d.pair }; }
+    ok(res, { prices: out }, 10);
+  } catch (e) { fail(res, e); }
+});
+app.get('/api/health', (req, res) => res.json({ ok: true, queue: safetyQ.length, cacheEntries: store.size }));
+
+app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
+app.get(/^\/(token\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`TrenchScope on http://localhost:${PORT}`));
+  // warm caches so the first visitor sees data and safety scores
+  const warm = () => Promise.allSettled(Object.keys(lists).map(k => lists[k]().then(r => enqueue(r.slice(0, 80).map(x => x.mint)))));
+  warm(); setInterval(warm, 90e3).unref();
+}
+module.exports = { app };
