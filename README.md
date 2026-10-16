@@ -27,14 +27,14 @@ DexScreener shows you charts. TrenchScope shows you charts **plus a safety score
 | Enhanced token info | $299 | **On the Scope** $69 |
 | Boosts | ~$99–$899 | $19 / $49 / $129 |
 | Watchlist + price alerts | account needed | ✅ in-browser (localStorage + notifications), no login |
-| One-click buy | ❌ | ✅ Jupiter / Photon, plus SafeSign deep scan |
+| One-click buy | ❌ | ✅ Jupiter, plus SafeSign deep scan |
 
 ## Features
 - **Tables:** 🔥 Trending (GeckoTerminal trending pools + DexScreener boosts), ✨ New pairs (GeckoTerminal new pools + new DexScreener profiles), 🚀 Gainers (24h movers with ≥$5K liquidity), 🟢 Pump.fun live, ★ Watchlist. Sortable columns, 30s auto-refresh, filters persisted locally.
 - **Safety score** (`lib/safety.js`, logic evolved from SafeSign's scanner): penalises active mint/freeze authority, concentrated top-10 holders (pools, lockers and burn accounts excluded), unlocked LP, large dev holdings, insider/bundle clusters, transfer fees, RugCheck "rugged" status and GoPlus flags (non-transferable, balance-mutable, closable). Any token with live mint/freeze authority or a bundle signal is capped at 65 so it can never show as "safe".
 - **Token page:** TradingView lightweight-charts candlesticks (1m→1d) with volume, price/mcap/FDV/liquidity/volume/holders, 5m/1h/6h/24h change, live recent trades (wallet + tx links), all pools, safety flags, bundle check, dev wallet, holder bars, price alert form.
 - **Search:** name, ticker or paste a mint (`/` to focus, arrow keys to navigate).
-- **Quick links:** Jupiter, Photon, SafeSign (`https://safesign-pg8h.onrender.com`), DexScreener, Solscan, RugCheck, pump.fun.
+- **Quick links:** Jupiter, SafeSign (`https://safesign-pg8h.onrender.com`), DexScreener, Solscan, RugCheck, pump.fun.
 - **Server-side caching:** every upstream call goes through a TTL cache with in-flight de-duplication, stale-on-error fallback, per-host throttling (GeckoTerminal ≈ 50/min) and retry on 429/5xx. Safety scans run in a background queue (2 workers) so tables load instantly and badges fill in.
 
 ## 👑 OG vs VAMP (`lib/og.js`)

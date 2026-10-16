@@ -156,3 +156,10 @@ tr.promoted{background:linear-gradient(90deg,rgba(255,209,102,.06),transparent 4
 .price-big{cursor:pointer;user-select:none;border-radius:10px;padding:4px 8px;margin-right:-8px;transition:background .15s}.price-big:hover{background:var(--card)}
 .pb-hint{font-size:11px;color:var(--dim);margin-top:2px}.pb-hint u{text-decoration:none;color:var(--mut);font-weight:700}
 .chip.vv{color:#0d1a05;background:linear-gradient(135deg,#9be15d,#f5c542);border-color:#b9d94a;font-weight:800}
+
+.modal-bg{position:fixed;inset:0;z-index:60;background:rgba(3,5,9,.72);backdrop-filter:blur(6px);display:grid;place-items:center;padding:16px;animation:in .2s}
+.modal{background:var(--card);border:1px solid var(--line2);border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.6);max-width:440px;width:100%;padding:22px}
+.modal h2{margin:0 0 14px;font-size:18px;letter-spacing:-.02em}
+.gl{display:grid;grid-template-columns:56px 1fr;gap:12px 10px;margin:0 0 18px;font-size:14px}.gl dt{padding-top:1px}.gl dd{margin:0;color:var(--mut)}.gl dd b{color:var(--tx)}
+.mbtns{display:flex;gap:8px;justify-content:flex-end}
+.glink{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1px solid var(--line2);color:var(--mut);font:700 11px Inter;flex:none;align-self:center}.glink:hover{color:var(--tx);border-color:var(--mut)}

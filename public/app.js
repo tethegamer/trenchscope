@@ -34,7 +34,6 @@ const short = a => a ? a.slice(0, 4) + '…' + a.slice(-4) : '';
 const icon = (r, cls = 'ico') => { const u = safeUrl(r.icon); return u ? `<img class="${cls}" src="${esc(u)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;${cls}&quot;>${esc((r.symbol || '?').slice(0, 2).replace(/[^\\w]/g, ''))}</div>'">` : `<div class="${cls}">${esc((r.symbol || '?').slice(0, 2))}</div>`; };
 const links = (mint, pair) => ({
   jup: `https://jup.ag/swap/SOL-${mint}`,
-  photon: pair ? `https://photon-sol.tinyastro.io/en/lp/${pair}` : `https://photon-sol.tinyastro.io/en/r/@trenchscope/${mint}`,
   safesign: `https://safesign-pg8h.onrender.com/?address=${mint}`,
   dex: `https://dexscreener.com/solana/${pair || mint}`,
   solscan: `https://solscan.io/token/${mint}`,
@@ -171,7 +170,7 @@ function listPage() {
   <div class="stats" id="stats"></div></section>
   <nav class="tabs">${TABS.map(t => `<button class="tab ${t.id === st.tab ? 'on' : ''}" data-tab="${t.id}">${t.label}${t.id === 'watch' ? ` <span class="chip">${Object.keys(watch).length}</span>` : ''}</button>`).join('')}</nav>
   <div class="bar"><div class="filters">
-    ${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${tog('noBundle', 'Hide bundled')}
+    ${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${glossLink}${tog('noBundle', 'Hide bundled')}
     ${sel('liq', 'Liq ≥', [[0, 'Any'], [5000, '$5K'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [500000, '$500K']])}
     ${sel('vol', 'Vol 24h ≥', [[0, 'Any'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [1000000, '$1M']])}
     ${sel('mcapMin', 'MCap ≥', [[0, 'Any'], [10000, '$10K'], [100000, '$100K'], [1000000, '$1M'], [10000000, '$10M']])}
@@ -307,14 +306,13 @@ async function tokenPage(mint) {
   <a href="/" data-link class="mut" style="font-size:13px">← Screener</a>
   ${sc && safeUrl(sc.banner) ? `<div class="banner" style="margin-top:10px"><img src="${esc(sc.banner)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></div>` : ''}
   <div class="tp-head" style="margin-top:10px">${icon({ icon: (sc && safeUrl(sc.logo)) || d.icon, symbol: d.symbol })}
-    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)}${d.flippedBy?.length ? `<span class="chip copy" title="Valid Vamp(s) have 5x+ this token's smoothed market cap">Flipped by ${esc(d.flippedBy[0].symbol || short(d.flippedBy[0].mint))}</span>` : ''} ${promoTag(d.promo, true)}</h1>
+    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)}${d.og && d.og.status !== 'none' ? glossLink : ''}${d.flippedBy?.length ? `<span class="chip copy" title="Valid Vamp(s) have 5x+ this token's smoothed market cap">Flipped by ${esc(d.flippedBy[0].symbol || short(d.flippedBy[0].mint))}</span>` : ''} ${promoTag(d.promo, true)}</h1>
       <div class="addr"><span>${esc(short(mint))}</span><button class="copy" data-copy="${mint}">Copy CA</button>${m.dex ? `<span class="chip">${esc(m.dex)}</span>` : ''}${s.launchpad ? `<span class="chip">${esc(s.launchpad)}</span>` : ''}${m.createdAt ? `<span class="chip">Pair age ${age(m.createdAt)}</span>` : ''}${socials.map(x => `<a class="chip" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join('')}</div></div>
     <div class="price-big" id="pbig" role="button" tabindex="0" title="Tap to switch Price ⇄ Market cap"></div>
   </div>
   ${sc ? `<div class="card scopecard"><div class="mut" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${SCOPE_ICO} Project info · submitted by the team, reviewed by TrenchScope</div><p style="margin:0 0 8px;white-space:pre-wrap">${esc(sc.description)}</p>${scLinks.map(([l, u]) => `<a class="chip" href="${esc(u)}" target="_blank" rel="noopener nofollow">${l} ↗</a>`).join(' ')}</div>` : ''}
   <div class="actions">
     <a class="btn pri" href="${L.jup}" target="_blank" rel="noopener">⚡ Buy on Jupiter</a>
-    <a class="btn vio" href="${L.photon}" target="_blank" rel="noopener">Trade on Photon</a>
     <a class="btn ss" href="${L.safesign}" target="_blank" rel="noopener">🛡 Deep scan on SafeSign</a>
     <button class="btn" id="wbtn">${isWatched(mint) ? '★ Watching' : '☆ Watchlist'}</button>
     <a class="btn" href="${L.dex}" target="_blank" rel="noopener">DexScreener ↗</a>
@@ -346,7 +344,7 @@ async function tokenPage(mint) {
         <dt>Linked wallet clusters</dt><dd>${s.insiderClusters}</dd><dt>Largest cluster</dt><dd>${s.biggestCluster ? s.biggestCluster + ' wallets' : '—'}</dd>
         <dt>Supply held by clusters</dt><dd>${s.insiderPct != null ? s.insiderPct.toFixed(1) + '%' : '—'}</dd></dl>
         <p class="dim" style="font-size:11px;margin:10px 0 0">Heuristic from RugCheck's wallet transfer graph: groups of wallets funded/linked together that still hold supply. Huge (>200 wallet) graphs are ignored as exchange noise.</p>` : '<div class="mut">Unavailable.</div>'}</div>
-      <div class="card"><h3>👑 OG check <span class="r">name/ticker originality</span></h3>${ogCard(d.og, d.symbol, d.flippedBy)}</div>
+      <div class="card"><h3>👑 OG check ${glossLink}<span class="r">name/ticker originality</span></h3>${ogCard(d.og, d.symbol, d.flippedBy)}</div>
       <div class="card"><h3>👤 Dev wallet</h3>${d.dev ? `<dl class="kv">
         <dt>Creator</dt><dd><a class="mono" style="color:var(--b)" href="https://solscan.io/account/${esc(d.dev.address)}" target="_blank" rel="noopener">${esc(short(d.dev.address))} ↗</a></dd>
         <dt>Holds of supply</dt><dd class="${d.dev.holdingPct > 5 ? 'dn' : ''}">${d.dev.holdingPct != null ? d.dev.holdingPct.toFixed(2) + '%' : '—'}</dd>
@@ -520,4 +518,24 @@ async function orderPage(id) {
   const iv = setInterval(tick, 10000); cleanup.push(() => clearInterval(iv)); tick();
 }
 
+// ---------- glossary (first visit) ----------
+function glossary(force) {
+  if (!force && (LS.get('glossaryOff', false) || sessionStorage.getItem('ts:glossarySeen'))) return;
+  $('#gloss')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" id="gloss"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="glT">
+    <h2 id="glT">Quick glossary</h2>
+    <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate the bonding curve.</dd>
+    <dt><span class="chip copy">VAMP</span></dt><dd>A later launch reusing an OG's name.</dd>
+    <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 5x+ the OG's. It can lose the badge if it drops back under 5x.</dd></dl>
+    <div class="mbtns"><button class="btn" id="glNo">Don't show again</button><button class="btn pri" id="glOk">Okay</button></div></div></div>`);
+  const close = () => $('#gloss')?.remove();
+  $('#glOk').onclick = () => { sessionStorage.setItem('ts:glossarySeen', '1'); close(); };
+  $('#glNo').onclick = () => { LS.set('glossaryOff', true); close(); };
+  $('#gloss').onclick = e => { if (e.target.id === 'gloss') $('#glOk').click(); };
+  $('#glOk').focus();
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-gloss]')) { e.preventDefault(); e.stopPropagation(); glossary(true); } });
+const glossLink = '<a href="#" class="glink" data-gloss data-stop title="What do OG / VAMP / VV mean?">?</a>';
+
 route();
+setTimeout(() => glossary(false), 600);
