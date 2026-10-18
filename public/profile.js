@@ -1,4 +1,4 @@
-// TrenchScope Profile: watchlist, tracked wallets, wallet PnL estimator and shareable PnL card.
+// On the Scope Profile: watchlist, tracked wallets, wallet PnL estimator and shareable PnL card.
 // Everything is stored in localStorage; no wallet connection or signing. Loaded lazily from app.js.
 let C; // helpers from app.js: { $, esc, usd, price, pct, age, short, icon, api, LS, toast, watch, toggleWatch, go, cleanup, tokenHref }
 const TOKEN_PROGRAMS = ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'];
@@ -144,7 +144,7 @@ export function profilePage(ctx) {
   pfClean.forEach(f => f()); pfClean = [];
   if (C !== ctx) { C = ctx; ctx.cleanup.push(() => { pfClean.forEach(f => f()); pfClean = []; }); }
   const { $, esc, LS } = C;
-  document.title = 'Profile — TrenchScope';
+  document.title = 'Profile — On the Scope';
   const q = new URLSearchParams(location.search);
   let tab = q.get('tab') || LS.get('pfTab', 'watch'); if (!TABS.some(t => t[0] === tab)) tab = 'watch';
   const prof = LS.get('profile', { name: '' });
@@ -277,7 +277,7 @@ function pnlTab() {
       <button class="btn pri" id="pnlGo">Analyze</button></form>
     ${wallets.length ? `<div class="pf-chips">${wallets.slice(0, 8).map(w => `<button class="chip" data-usew="${esc(w.addr)}">${esc(w.label)}</button>`).join('')}</div>` : ''}
     <details class="pf-set"><summary>Settings · custom RPC</summary><div class="pf-setrow"><input id="rpcUrl" class="mono" placeholder="https://… (default: PublicNode + Solana public RPC)" value="${esc(LS.get('rpc', ''))}"><button class="btn sm" id="rpcSave">Save</button></div>
-      <p class="dim">Optional. By default your browser reads the chain through free public RPCs (PublicNode, then the Solana public RPC via TrenchScope). If they get busy, paste your own RPC URL (e.g. a free Helius or QuickNode key) — stored only in this browser.</p></details>
+      <p class="dim">Optional. By default your browser reads the chain through free public RPCs (PublicNode, then the Solana public RPC via On the Scope). If they get busy, paste your own RPC URL (e.g. a free Helius or QuickNode key) — stored only in this browser.</p></details>
   </div>
   <div id="pnlOut">${lastResult && lastResult.addr === pre ? '' : `<div class="card empty pf-empty"><div style="font-size:28px">📈</div><b>Wallet PnL, estimated</b><p class="mut">Paste any Solana address to estimate realized &amp; unrealized PnL, volume and daily / weekly / monthly profit from its recent on-chain trades — then grab a shareable PnL card.</p></div>`}</div>`;
   body.querySelectorAll('[data-usew]').forEach(b => b.onclick = () => { $('#pnlAddr').value = b.dataset.usew; $('#pnlForm').requestSubmit(); });
@@ -375,8 +375,8 @@ async function renderCard(r, label, period) {
   drawLogo(g, 760, 70, 520, 0.07); // big crosshair watermark
   // brand
   drawLogo(g, 56, 46, 60);
-  g.font = '800 34px Inter, system-ui, sans-serif'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText('Trench', 130, 77);
-  const tw = g.measureText('Trench').width; g.fillStyle = '#84e639'; g.fillText('Scope', 130 + tw, 77);
+  g.font = '800 34px Inter, system-ui, sans-serif'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText('On the ', 130, 77);
+  const tw = g.measureText('On the ').width; g.fillStyle = '#84e639'; g.fillText('Scope', 130 + tw, 77);
   // period pill
   g.font = '700 18px Inter, system-ui, sans-serif'; const pt = PERIODS[period].toUpperCase() + ' · PnL'; const pw = g.measureText(pt).width + 36;
   roundRect(g, W - 56 - pw, 56, pw, 42, 21); g.fillStyle = 'rgba(255,255,255,.06)'; g.fill(); g.strokeStyle = 'rgba(255,255,255,.12)'; g.stroke();
@@ -420,7 +420,7 @@ async function renderCard(r, label, period) {
     g.font = '800 32px Inter, system-ui, sans-serif'; g.fillStyle = n == null ? '#e8ecf3' : n > 0 ? '#14f195' : n < 0 ? '#ff4d6a' : '#e8ecf3'; g.fillText(v, x + 22, y + 70);
   });
   // footer
-  g.font = '600 17px Inter, system-ui, sans-serif'; g.fillStyle = '#8590a6'; g.fillText('trenchscope.onrender.com', 60, 625);
+  g.font = '600 17px Inter, system-ui, sans-serif'; g.fillStyle = '#8590a6'; g.fillText(location.host, 60, 625);
   g.textAlign = 'right'; g.fillStyle = '#5b6479'; g.fillText(`Estimate from on-chain data · not financial advice · ${new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`, W - 60, 625); g.textAlign = 'left';
   return cv;
 }
@@ -442,14 +442,14 @@ async function cardModal(r, label) {
     blob = await new Promise(res => cv.toBlob(res, 'image/png'));
     const box = $('#pcard .pcard-img'); if (!box) return; box.innerHTML = ''; const img = new Image(); img.src = URL.createObjectURL(blob); img.alt = 'PnL card preview'; box.append(img);
     const head = per === 'all' ? r.pnl.total : r.pnl.periods[per].realized;
-    $('#pcX2').href = 'https://x.com/intent/tweet?text=' + encodeURIComponent(`My ${PERIODS[per].toLowerCase()} Solana PnL: ${money(head).replace('−', '-')} 📈\nTracked with TrenchScope`) + '&url=' + encodeURIComponent(location.origin);
+    $('#pcX2').href = 'https://x.com/intent/tweet?text=' + encodeURIComponent(`My ${PERIODS[per].toLowerCase()} Solana PnL: ${money(head).replace('−', '-')} 📈\nTracked with On the Scope`) + '&url=' + encodeURIComponent(location.origin);
   };
   $('#pcard').querySelectorAll('[data-per]').forEach(b => b.onclick = () => { per = b.dataset.per; $('#pcard').querySelectorAll('[data-per]').forEach(x => x.classList.toggle('on', x === b)); draw(); });
-  const fname = () => `trenchscope-pnl-${r.addr.slice(0, 6)}-${per}.png`;
+  const fname = () => `onthescope-pnl-${r.addr.slice(0, 6)}-${per}.png`;
   $('#pcDl').onclick = () => { if (!blob) return; const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname(); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); };
   $('#pcCopy').onclick = async () => { try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); C.toast('Card copied — paste it anywhere'); } catch { C.toast('Copy not supported here — use Download'); } };
   const file = () => new File([blob], fname(), { type: 'image/png' });
   if (!(navigator.canShare && navigator.canShare({ files: [new File([new Blob()], 'x.png', { type: 'image/png' })] }))) $('#pcShare').hidden = true;
-  $('#pcShare').onclick = async () => { try { await navigator.share({ files: [file()], title: 'My TrenchScope PnL', text: 'Tracked with TrenchScope ' + location.origin }); } catch {} };
+  $('#pcShare').onclick = async () => { try { await navigator.share({ files: [file()], title: 'My On the Scope PnL', text: 'Tracked with On the Scope ' + location.origin }); } catch {} };
   draw();
 }

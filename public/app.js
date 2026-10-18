@@ -1,4 +1,4 @@
-// TrenchScope frontend — vanilla JS, no build step.
+// On the Scope frontend — vanilla JS, no build step.
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -56,8 +56,8 @@ function pips(s) {
 
 // ---------- paid placements ----------
 const SCOPE_ICO = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>';
-const scopeTag = big => `<span class="chip scope" title="On the Scope: the project paid for an enhanced profile and TrenchScope reviewed the submitted info. This is a paid listing, not an endorsement — always check the safety score.">${SCOPE_ICO}${big ? ' On the Scope' : ''}</span>`;
-const promoTag = (n, big) => n ? `<span class="chip promo" title="Promoted: ${n} paid boosts active on TrenchScope. Paid placement — ranking raised in Trending.">⚡${big ? ' Promoted · ' : ''}${n}${big ? ' boosts' : ''}${big ? '' : ' AD'}</span>` : '';
+const scopeTag = big => `<span class="chip scope" title="Scoped: the project paid for an enhanced profile and On the Scope reviewed the submitted info. This is a paid listing, not an endorsement — always check the safety score.">${SCOPE_ICO}${big ? ' Scoped' : ''}</span>`;
+const promoTag = (n, big) => n ? `<span class="chip promo" title="Promoted: ${n} paid boosts active on this site. Paid placement — ranking raised in Trending.">⚡${big ? ' Promoted · ' : ''}${n}${big ? ' boosts' : ''}${big ? '' : ' AD'}</span>` : '';
 
 // ---------- OG / VAMP ----------
 const dt = ts => ts ? new Date(ts).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?';
@@ -94,7 +94,7 @@ async function checkAlerts() {
       if ((a.dir === 'above' && p >= a.price) || (a.dir === 'below' && p <= a.price)) {
         const msg = `🔔 ${a.symbol} is ${a.dir} ${price(a.price)} — now ${price(p)}`;
         toast(`<b>${msg}</b><br><a href="/token/${a.mint}" data-link style="color:var(--b)">Open chart →</a>`, a.dir === 'above' ? 'var(--g)' : 'var(--r)');
-        if ('Notification' in window && Notification.permission === 'granted') new Notification('TrenchScope alert', { body: msg.replace(/<[^>]+>/g, '') });
+        if ('Notification' in window && Notification.permission === 'granted') new Notification('On the Scope alert', { body: msg.replace(/<[^>]+>/g, '') });
         alerts = alerts.filter(x => x.id !== a.id); changed = true;
       }
     }
@@ -194,7 +194,7 @@ const sel = (key, label, opts) => `<label class="f">${label}<select data-k="${ke
 const tog = (key, label) => `<button class="toggle ${st[key] ? 'on' : ''}" data-t="${key}"><span class="sw"></span>${label}</button>`;
 
 function listPage() {
-  document.title = 'TrenchScope — Solana screener with safety on every row';
+  document.title = 'On the Scope — Solana screener with safety on every row';
   if (st.chain !== 'solana' && !['trending', 'new', 'gainers'].includes(st.tab)) st.tab = 'trending';
   const tab = TABS.find(t => t.id === st.tab) || TABS[0];
   renderChainBtn();
@@ -330,7 +330,7 @@ async function tokenPage(mint, chain = 'solana') {
   let d;
   try { d = await api('/api/token/' + encodeURIComponent(mint) + cq); } catch (e) { app.innerHTML = `<div class="err">Couldn't load token: ${esc(e.message)}</div><p style="text-align:center"><a href="/" data-link class="btn">← Back to screener</a></p>`; return; }
   const m = d.main || {}; const s = d.safety || {}; const L = links(mint, m.pair);
-  document.title = `${d.symbol || short(mint)} ${m.priceUsd ? '· ' + price(m.priceUsd).replace(/<[^>]+>/g, '') : ''} — TrenchScope`;
+  document.title = `${d.symbol || short(mint)} ${m.priceUsd ? '· ' + price(m.priceUsd).replace(/<[^>]+>/g, '') : ''} — On the Scope`;
   const sv = !s.unavailable;
   const ringC = !sv ? 'var(--dim)' : s.grade === 'safe' ? 'var(--g)' : s.grade === 'caution' ? 'var(--y)' : 'var(--r)';
   const verdict = !sv ? '' : s.grade === 'safe' ? `<div class="verdict g">✓ No major red flags found. Still DYOR — memecoins are high risk.</div>` : s.grade === 'caution' ? `<div class="verdict y">⚠ Some risk factors — review the flags before aping.</div>` : `<div class="verdict r">⛔ High risk — serious red flags detected.</div>`;
@@ -346,7 +346,7 @@ async function tokenPage(mint, chain = 'solana') {
       <div class="addr"><span>${esc(short(mint))}</span><button class="copy" data-copy="${mint}">Copy CA</button>${m.dex ? `<span class="chip">${esc(m.dex)}</span>` : ''}${s.launchpad ? `<span class="chip">${esc(s.launchpad)}</span>` : ''}${m.createdAt ? `<span class="chip">Pair age ${age(m.createdAt)}</span>` : ''}${socials.map(x => `<a class="chip" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join('')}</div></div>
     <div class="price-big" id="pbig" role="button" tabindex="0" title="Tap to switch Price ⇄ Market cap"></div>
   </div>
-  ${sc ? `<div class="card scopecard"><div class="mut" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${SCOPE_ICO} Project info · submitted by the team, reviewed by TrenchScope</div><p style="margin:0 0 8px;white-space:pre-wrap">${esc(sc.description)}</p>${scLinks.map(([l, u]) => `<a class="chip" href="${esc(u)}" target="_blank" rel="noopener nofollow">${l} ↗</a>`).join(' ')}</div>` : ''}
+  ${sc ? `<div class="card scopecard"><div class="mut" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${SCOPE_ICO} Project info · submitted by the team, reviewed by On the Scope</div><p style="margin:0 0 8px;white-space:pre-wrap">${esc(sc.description)}</p>${scLinks.map(([l, u]) => `<a class="chip" href="${esc(u)}" target="_blank" rel="noopener nofollow">${l} ↗</a>`).join(' ')}</div>` : ''}
   <div class="actions">
     ${isSol ? `<a class="btn pri" href="${L.jup}" target="_blank" rel="noopener">⚡ Buy on Jupiter</a>
     <a class="btn ss" href="${L.safesign}" target="_blank" rel="noopener">🛡 Deep scan on SafeSign</a>
@@ -355,7 +355,7 @@ async function tokenPage(mint, chain = 'solana') {
     ${isSol ? `<a class="btn" href="${L.solscan}" target="_blank" rel="noopener">Solscan ↗</a>
     <a class="btn" href="${L.rug}" target="_blank" rel="noopener">RugCheck ↗</a>` : ''}
     ${d.pump ? `<a class="btn" href="${L.pump}" target="_blank" rel="noopener">pump.fun ↗</a>` : ''}
-    ${isSol ? '' : '<!--'}<a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get On the Scope / Boost'}</a>${isSol ? '' : '-->'}
+    ${isSol ? '' : '<!--'}<a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get Scoped / Boost'}</a>${isSol ? '' : '-->'}
   </div>
   <div class="kpis">
     <div class="kpi"><small>Market cap</small><b>${usd(m.mcap ?? d.pump?.usdMcap)}</b><span class="dim" style="font-size:12px">FDV ${usd(m.fdv)}</span></div>
@@ -372,7 +372,7 @@ async function tokenPage(mint, chain = 'solana') {
     </div>
     ${isSol ? `    <div class="stack">
       <div class="card"><h3>🛡 Safety <span class="r">RugCheck + GoPlus</span></h3>
-        ${sv ? `<div class="score-ring"><div class="ring" style="--v:${s.score};--c:${ringC}"><span style="color:${ringC}">${s.score}</span></div><div><div style="font-weight:800;font-size:16px;text-transform:capitalize">${s.grade === 'safe' ? 'Looks clean' : s.grade === 'caution' ? 'Caution' : 'High risk'}</div><div class="mut" style="font-size:12px">TrenchScope score /100</div><div style="margin-top:6px">${pips(s)}</div></div></div>
+        ${sv ? `<div class="score-ring"><div class="ring" style="--v:${s.score};--c:${ringC}"><span style="color:${ringC}">${s.score}</span></div><div><div style="font-weight:800;font-size:16px;text-transform:capitalize">${s.grade === 'safe' ? 'Looks clean' : s.grade === 'caution' ? 'Caution' : 'High risk'}</div><div class="mut" style="font-size:12px">On the Scope score /100</div><div style="margin-top:6px">${pips(s)}</div></div></div>
         <div class="flags">${s.flags.map(f => `<div class="flag ${f.level}"><i></i><div><b>${esc(f.title)}</b><p>${esc(f.detail)}</p></div></div>`).join('')}</div>${verdict}` : `<div class="mut">Safety data unavailable right now${s.error ? ' (' + esc(s.error) + ')' : ''}. Try the <a href="${L.safesign}" target="_blank" style="color:var(--b)">SafeSign deep scan</a>.</div>`}
       </div>
       <div class="card"><h3>🧨 Bundle / sniper check</h3>${sv ? `
@@ -493,22 +493,22 @@ function initChart(pool, lastPrice) {
 const DS_PRICES = { scope: 299, boost10: 99, boost30: 249, boost100: 899 };
 const DS_HOURS = { boost10: 12, boost30: 12, boost100: 24 };
 async function advertisePage() {
-  document.title = 'Advertise — TrenchScope';
+  document.title = 'Advertise — On the Scope';
   const pre = new URLSearchParams(location.search).get('mint') || '';
   let P; try { P = await api('/api/pricing'); } catch (e) { app.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
   const pr = Object.fromEntries(P.products.map(p => [p.id, p]));
   const sel0 = new URLSearchParams(location.search).get('product') || 'scope';
   app.innerHTML = `
-  <section class="hero"><div><h1>Advertise on TrenchScope</h1><p>Same placements as DexScreener at a fraction of the price — paid in USDC or SOL with Solana Pay, verified on-chain. Every paid placement is labelled.</p></div></section>
+  <section class="hero"><div><h1>Advertise with On the Scope</h1><p>Same placements as DexScreener at a fraction of the price — paid in USDC or SOL with Solana Pay, verified on-chain. Every paid placement is labelled.</p></div></section>
   <div class="plans">
-    <div class="plan feat"><div class="pn">${SCOPE_ICO} On the Scope</div><div class="pp">$${pr.scope.priceUsd}<small> one-time</small></div><div class="pv">DexScreener Enhanced Token Info: <s>$${DS_PRICES.scope}</s> · save ${Math.round((1 - pr.scope.priceUsd / DS_PRICES.scope) * 100)}%</div>
-      <ul><li>Logo, banner & description on the token page</li><li>Website / X / Telegram links</li><li>“On the Scope” crosshair badge in every table</li><li>Reviewed by us before it goes live (usually &lt; 12h)</li></ul><button class="btn pri" data-pick="scope">Get On the Scope</button></div>
+    <div class="plan feat"><div class="pn">${SCOPE_ICO} Scoped</div><div class="pp">$${pr.scope.priceUsd}<small> one-time</small></div><div class="pv">DexScreener Enhanced Token Info: <s>$${DS_PRICES.scope}</s> · save ${Math.round((1 - pr.scope.priceUsd / DS_PRICES.scope) * 100)}%</div>
+      <ul><li>Logo, banner & description on the token page</li><li>Website / X / Telegram links</li><li>“Scoped” crosshair badge in every table</li><li>Reviewed by us before it goes live (usually &lt; 12h)</li></ul><button class="btn pri" data-pick="scope">Get Scoped</button></div>
     ${['boost10', 'boost30', 'boost100'].map(id => `<div class="plan"><div class="pn">⚡ ${pr[id].name}</div><div class="pp">$${pr[id].priceUsd}<small> / ${pr[id].hours}h</small></div><div class="pv">DexScreener ${pr[id].boosts}x: <s>$${DS_PRICES[id]}</s> / ${DS_HOURS[id]}h · save ${Math.round((1 - pr[id].priceUsd / DS_PRICES[id]) * 100)}%</div>
       <ul><li>Pinned higher in 🔥 Trending, ordered by active boosts</li><li>⚡ “Promoted” label on rows and token page</li><li>Stacks with other boosts</li><li>Starts instantly after on-chain confirmation</li></ul><button class="btn" data-pick="${id}">Boost ${pr[id].boosts}x</button></div>`).join('')}
   </div>
-  <div class="card" style="margin:16px 0"><h3>Price comparison</h3><div class="scroll"><table style="min-width:560px"><thead><tr><th class="l">Product</th><th>TrenchScope</th><th>DexScreener*</th><th>You save</th></tr></thead><tbody>
-    ${['scope', 'boost10', 'boost30', 'boost100'].map(id => `<tr><td class="l">${id === 'scope' ? 'On the Scope (vs Enhanced Token Info)' : pr[id].name + ' · ' + pr[id].hours + 'h'}</td><td class="up" style="font-weight:700">$${pr[id].priceUsd}</td><td class="mut">$${DS_PRICES[id]}${DS_HOURS[id] ? ' · ' + DS_HOURS[id] + 'h' : ''}</td><td>${Math.round((1 - pr[id].priceUsd / DS_PRICES[id]) * 100)}%</td></tr>`).join('')}
-  </tbody></table></div><p class="dim" style="font-size:11px;margin:10px 0 0">*DexScreener Enhanced Token Info lists at $299. DexScreener only shows boost prices inside its Boost dialog; boost figures here are the commonly reported prices — check dexscreener.com for current pricing. Boosts are not available for tokens our scanner rates high-risk. Payments are non-refundable once a placement is live; rejected On the Scope submissions are refunded to the paying wallet.</p></div>
+  <div class="card" style="margin:16px 0"><h3>Price comparison</h3><div class="scroll"><table style="min-width:560px"><thead><tr><th class="l">Product</th><th>On the Scope</th><th>DexScreener*</th><th>You save</th></tr></thead><tbody>
+    ${['scope', 'boost10', 'boost30', 'boost100'].map(id => `<tr><td class="l">${id === 'scope' ? 'Scoped (vs Enhanced Token Info)' : pr[id].name + ' · ' + pr[id].hours + 'h'}</td><td class="up" style="font-weight:700">$${pr[id].priceUsd}</td><td class="mut">$${DS_PRICES[id]}${DS_HOURS[id] ? ' · ' + DS_HOURS[id] + 'h' : ''}</td><td>${Math.round((1 - pr[id].priceUsd / DS_PRICES[id]) * 100)}%</td></tr>`).join('')}
+  </tbody></table></div><p class="dim" style="font-size:11px;margin:10px 0 0">*DexScreener Enhanced Token Info lists at $299. DexScreener only shows boost prices inside its Boost dialog; boost figures here are the commonly reported prices — check dexscreener.com for current pricing. Boosts are not available for tokens our scanner rates high-risk. Payments are non-refundable once a placement is live; rejected Scoped submissions are refunded to the paying wallet.</p></div>
   <div class="card" id="orderCard"><h3>Place an order</h3>
     <form id="orderForm" class="oform">
       <label>Product<select name="product">${P.products.map(p => `<option value="${p.id}" ${p.id === sel0 ? 'selected' : ''}>${esc(p.name)} — $${p.priceUsd}${p.hours ? ' / ' + p.hours + 'h' : ''}</option>`).join('')}</select></label>
@@ -538,11 +538,11 @@ async function advertisePage() {
   };
 }
 async function orderPage(id) {
-  document.title = 'Order — TrenchScope';
+  document.title = 'Order — On the Scope';
   let qrs = {}; try { (JSON.parse(sessionStorage.getItem('order:' + id)) || []).forEach(o => qrs[o.currency] = o.qr); } catch {}
   const render = o => {
     (o.options || []).forEach(op => { if (op.qr) qrs[op.currency] = op.qr; });
-    const names = { scope: 'On the Scope', boost10: '10x Boost', boost30: '30x Boost', boost100: '100x Boost' };
+    const names = { scope: 'Scoped', boost10: '10x Boost', boost30: '30x Boost', boost100: '100x Boost' };
     const status = { pending: '⏳ Waiting for payment', review: '✅ Paid — under review (usually < 12h)', approved: '✅ Live on the token page', rejected: 'Rejected' + (o.reviewNote ? ': ' + esc(o.reviewNote) : ''), active: `⚡ Boost active until ${new Date(o.endsAt).toLocaleString()}`, expired: 'Expired — no payment received' }[o.status] || o.status;
     app.innerHTML = `<a href="/advertise" data-link class="mut" style="font-size:13px">← Advertise</a>
     <section class="hero"><div><h1>${names[o.product] || o.product} · $${o.priceUsd}</h1><p>Token <a href="/token/${o.mint}" data-link class="mono" style="color:var(--b)">${short(o.mint)}</a> · order <span class="mono">${o.id}</span></p></div></section>
@@ -559,10 +559,11 @@ function glossary(force) {
   if (!force && (LS.get('glossaryOff', false) || sessionStorage.getItem('ts:glossarySeen'))) return;
   $('#gloss')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" id="gloss"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="glT">
-    <h2 id="glT">Quick glossary</h2>
+    <h2 id="glT">Welcome to On the Scope</h2><p class="mut" style="margin:-6px 0 14px;font-size:13px">Quick glossary of the tags you'll see:</p>
     <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate — i.e. migrate from its launchpad to open trading.</dd>
     <dt><span class="chip vamp">VAMP</span></dt><dd>A later launch reusing an OG's name that has also graduated.</dd>
-    <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 5x+ the OG's. It can lose the badge if it drops back under 5x.</dd></dl>
+    <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 5x+ the OG's. It can lose the badge if it drops back under 5x.</dd>
+    <dt>${scopeTag()}</dt><dd><b>Scoped</b>: the team paid for an enhanced profile that On the Scope reviewed. A paid listing, not an endorsement.</dd></dl>
     <p class="dim" style="font-size:12px;margin:-6px 0 16px">Tokens that haven't graduated from their launchpad yet get no OG/VAMP tag.</p>
     <div class="mbtns"><button class="btn" id="glNo">Don't show again</button><button class="btn pri" id="glOk">Okay</button></div></div></div>`);
   const close = () => $('#gloss')?.remove();

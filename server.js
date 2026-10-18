@@ -1,4 +1,4 @@
-// TrenchScope — Solana token screener with safety intel on every row.
+// On the Scope — Solana token screener with safety intel on every row.
 const express = require('express');
 const compression = require('compression');
 const path = require('path');
@@ -11,7 +11,7 @@ const QRCode = require('qrcode');
 
 const PORT = process.env.PORT || 3000;
 const RPC = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
-const UA = { 'User-Agent': 'TrenchScope/1.0 (+https://github.com/tethegamer/trenchscope)', Accept: 'application/json' };
+const UA = { 'User-Agent': 'OnTheScope/1.0 (+https://github.com/tethegamer/trenchscope)', Accept: 'application/json' };
 
 // ---------- cache with in-flight dedupe + stale-on-error ----------
 const store = new Map();
@@ -508,7 +508,7 @@ app.post('/api/rpc', express.json({ limit: '20kb' }), async (req, res) => {
     res.set('Cache-Control', 'no-store'); res.json(d);
   } catch (e) { fail(res, e, /429/.test(e.message) ? 429 : 502); }
 });
-// ---------- monetization: On the Scope + Boosts (Solana Pay) ----------
+// ---------- monetization: Scoped + Boosts (Solana Pay) ----------
 app.use('/api/orders', express.json({ limit: '20kb' }));
 app.use('/api/admin', express.json({ limit: '5kb' }));
 app.get('/api/pricing', (req, res) => ok(res, { recipient: pay.RECIPIENT, products: Object.values(pay.PRODUCTS) }, 300));
@@ -567,7 +567,7 @@ app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'adm
 app.get(/^\/(token\/.*|advertise|profile|order\/.*|c\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`TrenchScope on http://localhost:${PORT}`));
+  app.listen(PORT, () => console.log(`On the Scope on http://localhost:${PORT}`));
   // warm caches so the first visitor sees data and safety scores
   const warm = () => Promise.allSettled(Object.keys(lists).map(k => lists[k]().then(r => { enqueue(r.slice(0, 80).map(x => x.mint)); enqueueOG(r.slice(0, 80)); })));
   warm(); setInterval(warm, 90e3).unref();

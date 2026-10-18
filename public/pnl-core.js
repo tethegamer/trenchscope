@@ -1,4 +1,4 @@
-// TrenchScope wallet PnL core — pure functions, shared by the browser (window.PnlCore) and node tests.
+// On the Scope wallet PnL core — pure functions, shared by the browser (window.PnlCore) and node tests.
 // Estimates only: built from the wallet's recent parsed transactions + current/historical prices.
 (function (root) {
   const SOL = 'So11111111111111111111111111111111111111112';

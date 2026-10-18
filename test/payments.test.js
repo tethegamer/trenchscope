@@ -39,7 +39,7 @@ function forceOption(id, amount) { // point the order's USDC option at the histo
   const o = pay._testHooks().db().orders[id];
   o.options = [{ currency: 'USDC', amount, reference: U.reference, url: 'x' }];
 }
-test('On the Scope order: pending -> paid -> review -> approved shows profile; signature not reusable', async () => {
+test('Scoped order: pending -> paid -> review -> approved shows profile; signature not reusable', async () => {
   const h = pay._testHooks();
   h.setRpc(async m => m === 'getSignaturesForAddress' ? [{ signature: USDC_SIG, err: null, blockTime: usdcTx.blockTime }] : usdcTx);
   const o = await pay.createOrder('scope', MINT, { logo: 'https://x/logo.png', description: 'A test description long enough' });
