@@ -37,6 +37,14 @@ DexScreener shows you charts. TrenchScope shows you charts **plus a safety score
 - **Quick links:** Jupiter, SafeSign (`https://safesign-pg8h.onrender.com`), DexScreener, Solscan, RugCheck, pump.fun.
 - **Server-side caching:** every upstream call goes through a TTL cache with in-flight de-duplication, stale-on-error fallback, per-host throttling (GeckoTerminal ≈ 50/min) and retry on 429/5xx. Safety scans run in a background queue (2 workers) so tables load instantly and badges fill in.
 
+## 👤 Profile (`/profile`, `public/profile.js` + `public/pnl-core.js`)
+No login, no wallet signing — everything lives in `localStorage`.
+- **Watchlist:** the same ★ list as the screener tab, with live prices.
+- **Tracked wallets:** paste an address + label; shows SOL balance, last activity and the latest buys/sells (expand).
+- **Wallet PnL (estimate):** reads the wallet's last 100–1,000 transactions in the browser (PublicNode RPC → Solana public RPC via `/api/rpc` proxy, or a custom RPC set in settings), turns balance changes into buys/sells (SOL, USDC, USDT quotes), values SOL legs at the SOL/USD price of the time (`/api/solprice`, GeckoTerminal) and open positions at live DexScreener prices. Average-cost realized + unrealized PnL, volume, win rate, 24h / 7d / 30d realized profit, daily bars, per-token table. Parsed transactions are cached per wallet so re-runs only fetch new ones. Excludes sells without a buy in the window, transfers/airdrops and token↔token swaps.
+- **PnL card:** 1200×675 PNG drawn on canvas with the T-crosshair logo — download, copy, native share, or post to X.
+- **Connect X:** placeholder (coming soon).
+
 ## 👑 OG vs VAMP (`lib/og.js`)
 When a coin pumps, vamps relaunch the same name/ticker. TrenchScope finds every Solana token with the same identity and marks the **first one to graduate** as **OG**; later ones get a **VAMP** tag (“Vamp: reused a name that already graduated earlier”) that links to the OG.
 - **Normalization:** lowercase, accents/emojis/`$`/punctuation/spaces stripped, leading “the”, one trailing suffix (`coin`, `token`, `official`, `sol`, `onsol`, `fun`, `ai`) removed — `streamoors.fun` = `Streamoors`, `The BONK Coin 🚀` = `bonk`.

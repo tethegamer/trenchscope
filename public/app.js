@@ -127,7 +127,18 @@ function route() {
   const m = location.pathname.match(/^\/token\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
   window.scrollTo(0, 0);
   const o = location.pathname.match(/^\/order\/([a-f0-9]{20})$/);
-  if (mc) tokenPage(decodeURIComponent(mc[2]), mc[1]); else if (m) tokenPage(m[1]); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else listPage();
+  $('#profileBtn')?.classList.toggle('on', location.pathname === '/profile');
+  if (mc) tokenPage(decodeURIComponent(mc[2]), mc[1]); else if (m) tokenPage(m[1]); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else if (location.pathname === '/profile') openProfile(); else listPage();
+}
+
+// ---------- profile (lazy-loaded module) ----------
+async function openProfile() {
+  app.innerHTML = '<div class="pf-head"><div class="pf-av skel"></div><div style="flex:1"><div class="skel" style="width:180px;height:20px"></div><div class="skel" style="width:260px;margin-top:8px"></div></div></div>';
+  try {
+    const { profilePage } = await import('./profile.js');
+    if (location.pathname !== '/profile') return;
+    profilePage({ app, $, esc, usd, price, pct, age, short, icon, api, LS, toast, watch, toggleWatch, go, cleanup, tokenHref });
+  } catch (e) { app.innerHTML = `<div class="err">Couldn't load the profile: ${esc(e.message)}</div>`; }
 }
 
 // ---------- list page ----------

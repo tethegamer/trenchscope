@@ -148,7 +148,7 @@ async function geckoPools(kind, pages = 3) {
   }
   return all.map(fromGecko);
 }
-const SKIP = new Set(['So11111111111111111111111111111111111111112', 'EPjFWdd5AufLSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJrfKbg1RKUuu1xDWDH7q8zWZXbFmVCx']);
+const SKIP = new Set(['So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJrfKbg1RKUuu1xDWDH7q8zWZXbFmVCx']);
 async function enrich(base) {
   const seen = new Set(); const list = [];
   for (const r of base) { if (!SKIP.has(r.mint) && !seen.has(r.mint)) { seen.add(r.mint); list.push(r); } }
@@ -477,6 +477,37 @@ app.get('/api/prices', async (req, res) => {
     ok(res, { prices: out }, 10);
   } catch (e) { fail(res, e); }
 });
+// ---------- profile / wallet PnL helpers ----------
+// SOL/USD history for valuing past SOL-quoted trades (Raydium SOL/USDC pool on GeckoTerminal, cached 30m).
+const SOL_USDC_POOL = '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2';
+app.get('/api/solprice', async (req, res) => {
+  try {
+    const d = await cached('solprice', 30 * 60e3, async () => {
+      const series = async (tf, agg, limit) => {
+        const j = await getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${SOL_USDC_POOL}/ohlcv/${tf}?aggregate=${agg}&limit=${limit}&currency=usd`, { prio: PRIO.normal, timeout: 12000 });
+        return (j.data?.attributes?.ohlcv_list || []).map(c => [c[0], +c[4]]).sort((a, b) => a[0] - b[0]);
+      };
+      const [hourly, daily] = await Promise.all([series('hour', 1, 300).catch(() => []), series('day', 1, 365).catch(() => [])]);
+      let now = hourly.length ? hourly[hourly.length - 1][1] : null;
+      if (!now) { const ds = await dexTokens(['So11111111111111111111111111111111111111112']); const p = ds.values().next().value; now = p ? num(p.priceUsd) : null; }
+      if (!now && !daily.length) throw new Error('SOL price unavailable');
+      return { now, hourly, daily };
+    });
+    ok(res, d, 300);
+  } catch (e) { fail(res, e); }
+});
+// Read-only Solana RPC proxy: the browser talks to the public RPC directly first (its own rate limit); this is the
+// fallback when that is blocked. Only a few read methods, small batches, throttled per host like everything else.
+const RPC_METHODS = new Set(['getSignaturesForAddress', 'getTransaction', 'getBalance', 'getTokenAccountsByOwner']);
+app.post('/api/rpc', express.json({ limit: '20kb' }), async (req, res) => {
+  const body = req.body; const list = Array.isArray(body) ? body : [body];
+  if (!list.length || list.length > 10 || !list.every(c => c && RPC_METHODS.has(c.method) && Array.isArray(c.params))) return fail(res, new Error('unsupported RPC request'), 400);
+  try {
+    const clean = list.map((c, i) => ({ jsonrpc: '2.0', id: c.id ?? i, method: c.method, params: c.params }));
+    const d = await getJSON(RPC, { method: 'POST', body: JSON.stringify(Array.isArray(body) ? clean : clean[0]), timeout: 20000, prio: PRIO.high });
+    res.set('Cache-Control', 'no-store'); res.json(d);
+  } catch (e) { fail(res, e, /429/.test(e.message) ? 429 : 502); }
+});
 // ---------- monetization: On the Scope + Boosts (Solana Pay) ----------
 app.use('/api/orders', express.json({ limit: '20kb' }));
 app.use('/api/admin', express.json({ limit: '5kb' }));
@@ -533,7 +564,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
-app.get(/^\/(token\/.*|advertise|order\/.*|c\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get(/^\/(token\/.*|advertise|profile|order\/.*|c\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 if (require.main === module) {
   app.listen(PORT, () => console.log(`TrenchScope on http://localhost:${PORT}`));
