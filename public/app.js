@@ -1,4 +1,5 @@
 // On the Scope frontend — vanilla JS, no build step.
+import * as BUY from './buy.js';
 import * as AL from './alerts-client.js';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -404,7 +405,7 @@ async function tokenPage(mint, chain = 'solana') {
   </div>
   ${sc ? `<div class="card scopecard"><div class="mut" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${SCOPE_ICO} Project info · submitted by the team, reviewed by On the Scope</div><p style="margin:0 0 8px;white-space:pre-wrap">${esc(sc.description)}</p>${scLinks.map(([l, u]) => `<a class="chip" href="${esc(u)}" target="_blank" rel="noopener nofollow">${l} ↗</a>`).join(' ')}</div>` : ''}
   <div class="actions">
-    ${isSol ? `<a class="btn pri" href="${L.jup}" target="_blank" rel="noopener">⚡ Buy on Jupiter</a>
+    ${isSol ? `<a class="btn pri" id="buyBtn" href="${L.jup}" target="_blank" rel="noopener">⚡ Buy</a>
     <a class="btn ss" href="${L.safesign}" target="_blank" rel="noopener">🛡 Deep scan on SafeSign</a>
     <button class="btn" id="wbtn">${isWatched(mint) ? '★ Watching' : '☆ Watchlist'}</button>` : `<span class="chip">${chainDot(chain)} ${esc(chainOf(chain).name)}</span>`}
     <a class="btn ${isSol ? '' : 'pri'}" href="https://dexscreener.com/${chain}/${m.pair || mint}" target="_blank" rel="noopener">${isSol ? 'DexScreener ↗' : 'Trade on DexScreener ↗'}</a>
@@ -415,6 +416,9 @@ async function tokenPage(mint, chain = 'solana') {
   </div>
   ${isSol ? '<div class="smstrip" id="smStrip"></div>' : ''}
   <div class="card scorecard" id="scoreCard">${scoreSkel}</div>
+  ${isSol ? `<div class="card buycard" id="buyCard"><div class="buy-head"><div><b>⚡ Buy ${esc(d.symbol || 'this token')} here</b><div class="dim">Swap SOL → ${esc(d.symbol || 'token')} with Jupiter. Your wallet signs; we never hold funds.</div></div><button class="btn pri" id="buyOpen">Open swap</button></div>
+    <div id="jupiter-plugin" class="buy-body" hidden></div>
+    <div class="buy-foot dim"><span id="buyFee"></span> <a href="${L.jup}" target="_blank" rel="noopener">Buy on Jupiter ↗</a></div></div>` : ''}
   <div class="kpis">
     <div class="kpi"><small>Market cap</small><b>${usd(m.mcap ?? d.pump?.usdMcap)}</b><span class="dim" style="font-size:12px">FDV ${usd(m.fdv)}</span></div>
     <div class="kpi"><small>Liquidity</small><b>${usd(m.liquidity)}</b><span class="dim" style="font-size:12px">${m.liquidity && m.mcap ? 'Liq/MCap ' + (m.liquidity / m.mcap * 100).toFixed(1) + '%' : '&nbsp;'}</span></div>
@@ -468,6 +472,7 @@ async function tokenPage(mint, chain = 'solana') {
     toast(`Alert set: ${esc(d.symbol)} ${$('#adir').value} ${price(p)}`);
   };
   loadScore(mint, chain);
+  if (isSol) setupBuy(mint, d.symbol);
   if (isSol) { loadSmartToken(mint); const smi = setInterval(() => loadSmartToken(mint), 30000); cleanup.push(() => clearInterval(smi)); }
   if (m.pair) {
     initChart(m.pair, m.priceUsd);
@@ -486,6 +491,32 @@ function ogCard(o, sym, flipped) {
     ${flipped?.length ? `<dt>Flipped by</dt><dd>${flipped.map(f => `<a href="/token/${f.mint}" data-link class="chip vv">${esc(f.symbol || short(f.mint))} ${f.ratio.toFixed(1)}x</a>`).join(' ')}</dd>` : ''}
     ${o.olderNonGraduated ? `<dt>Older non-pump tokens</dt><dd class="mut">${o.olderNonGraduated} traded earlier on other DEXes</dd>` : ''}
     <dt>Same-name tokens indexed</dt><dd>${o.size}</dd></dl>${note}`;
+}
+// ---------- buy on site ----------
+function setupBuy(mint, sym) {
+  const card = $('#buyCard'); if (!card) return;
+  cleanup.push(() => BUY.unmount());
+  BUY.feeNote().then(t => { if ($('#buyFee')) $('#buyFee').textContent = t; });
+  let opened = false;
+  const open = async scroll => {
+    if (scroll) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (opened) return; opened = true;
+    const body = $('#jupiter-plugin'), btn = $('#buyOpen');
+    body.hidden = false; body.innerHTML = '<div class="skel" style="height:420px"></div>'; btn.textContent = 'Loading…'; btn.disabled = true;
+    try {
+      body.innerHTML = '';
+      await BUY.mountBuy('jupiter-plugin', { mint, onSuccess: tx => toast(`✓ Bought ${esc(sym || '')} · <a href="https://solscan.io/tx/${esc(tx)}" target="_blank" rel="noopener" style="color:var(--b)">view tx</a>`) });
+      btn.remove(); LS.set('buyOpen', true);
+    } catch (e) {
+      opened = false; body.innerHTML = `<div class="mut" style="padding:10px 0">Couldn't load the swap here (${esc(e.message)}). Use <b>Buy on Jupiter ↗</b> below instead.</div>`; btn.textContent = 'Retry'; btn.disabled = false;
+    }
+  };
+  $('#buyOpen').onclick = () => open(false);
+  BUY.config().then(c => {
+    if (!c.plugin) { card.remove(); return; } // fall back to the plain jup.ag link
+    const b = $('#buyBtn'); if (b) b.onclick = e => { if (e.metaKey || e.ctrlKey) return; e.preventDefault(); open(true); };
+    if (LS.get('buyOpen', false)) open(false); // they used it before: show it straight away
+  });
 }
 let KNOWN = new Map();
 async function loadSmartToken(mint) {

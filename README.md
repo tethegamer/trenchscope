@@ -57,6 +57,13 @@ One 0–100 number on every token page (full breakdown) and as a compact chip in
 Tag the bot under a post with a contract address and it replies with the Scope Score + token link. Off until
 `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` are set. Setup and costs: [docs/x-bot.md](docs/x-bot.md).
 
+## ⚡ Buy on site (`public/buy.js`, `lib/jupiter.js`)
+
+- Solana token pages have a **⚡ Buy … here** card, which is the official [Jupiter Plugin](https://dev.jup.ag/tool-kits/plugin) in integrated mode, set up for SOL → token. It loads when the user taps **Open swap** or the **⚡ Buy** button (or right away if they used it before). The buyer's wallet signs inside Jupiter; the server never handles keys or funds.
+- `JUP_REFERRAL_ACCOUNT` adds a referral fee of `JUP_REFERRAL_FEE_BPS` (default 50 = 0.5%, allowed 50–255). It stays off until the account is set, and the card shows the fee to buyers. Setup steps are in **[docs/jupiter-referral.md](docs/jupiter-referral.md)**.
+- `JUP_PLUGIN=0` hides the card. The **Buy on Jupiter ↗** link always works as a fallback, and the ⚡ Buy button also falls back to jup.ag if the plugin is off.
+- `GET /api/config` returns `{ jup: { plugin, referralAccount, feeBps } }`.
+
 ## 🧠 Smart money tags (`data/smart-wallets.js`)
 
 - A short curated list of **public KOL wallets** (20 today). Every address has a comment citing where it was publicly attributed (kolscan.io account pages, some cross-checked against a public Hugging Face dataset). Only add addresses you can verify that way. Set `SMART_MONEY=0` to turn the list off.

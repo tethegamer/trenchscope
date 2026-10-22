@@ -40,3 +40,8 @@ services:
       # Telegram alerts bot token from @BotFather (alerts over Telegram stay off until set)
       - key: TELEGRAM_ALERTS_BOT_TOKEN
         sync: false
+      # Buy on site (Jupiter Plugin) referral fee - see docs/jupiter-referral.md. Card works without it, just no fee.
+      - key: JUP_REFERRAL_ACCOUNT
+        sync: false
+      - key: JUP_REFERRAL_FEE_BPS
+        value: "50"

@@ -714,6 +714,10 @@ app.post('/api/admin/orders/:id/:action(approve|reject)', admin, (req, res) => {
 });
 app.post('/api/admin/orders/:id/recheck', admin, async (req, res) => { try { res.json(await pay.checkOrder(req.params.id)); } catch (e) { fail(res, e); } });
 
+// ---------- buy on site (Jupiter Plugin) ----------
+const JUP = require('./lib/jupiter').jupiterConfig(process.env, console);
+console.log(`[jupiter] plugin ${JUP.plugin ? 'on' : 'off'}, referral ${JUP.referralAccount ? JUP.feeBps + ' bps' : 'off (set JUP_REFERRAL_ACCOUNT)'}`);
+app.get('/api/config', (req, res) => ok(res, { jup: JUP }, 300));
 app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, pausedUntil: xbot.status.pausedUntil }, alerts: { subscribers: alerts.status.subscribers, vapid: alerts.status.vapid, telegram: alerts.status.telegram, sent: alerts.status.sent, lastTick: alerts.status.lastTick }, wallets: tracker.status, cacheEntries: store.size }));
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
