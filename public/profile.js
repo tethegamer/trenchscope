@@ -210,7 +210,7 @@ function alertsTab() {
         <div class="al-txt"><b>Push notifications</b><small class="mut">${pushOn ? '<span class="ok">● On</span> for this device' : !supported && ios && !standalone ? 'iPhone/iPad: install the app first' : !supported ? 'Not supported in this browser' : perm === 'denied' ? '<span class="bad">Blocked</span> in browser settings' : 'Off'}</small></div>
         ${pushOn ? '<button class="btn" id="pushOff">Turn off</button>' : `<button class="btn pri" id="pushOn" ${!supported ? 'disabled' : ''}>Turn on</button>`}
       </div>
-      ${ios && !standalone ? `<div class="al-ios"><b>📱 On iPhone or iPad</b><ol><li>Tap the <b>Share</b> button <span aria-hidden="true">⬆︎</span> in Safari</li><li>Choose <b>Add to Home Screen</b></li><li>Open <b>On the Scope</b> from your Home Screen, come back here and tap <b>Turn on</b></li></ol><small class="mut">Apple only allows web push for installed apps (iOS 16.4+).</small></div>` : ''}
+      ${ios && !standalone ? `<div class="al-ios"><b>📱 On iPhone or iPad</b><ol><li>Tap the <b>Share</b> button <span aria-hidden="true">⬆︎</span> in Safari</li><li>Choose <b>Add to Home Screen</b></li><li>Open <b>On the Scope</b> from your Home Screen, come back here and tap <b>Turn on</b></li></ol><small class="mut">Apple only allows web push for installed apps (iOS 16.4+).</small> <button class="btn sm" data-install>📲 Show me how</button></div>` : ''}
       <div class="al-ch">
         <div class="al-ico">✈️</div>
         <div class="al-txt"><b>Telegram</b><small class="mut">${!tg.enabled ? 'Not set up on this server yet' : tg.linked ? '<span class="ok">● Linked</span> — alerts arrive in your chat' : tg.username ? `Open @${esc(tg.username)} and press Start` : 'Bot is starting…'}</small></div>
@@ -232,6 +232,7 @@ function alertsTab() {
     body.querySelectorAll('[data-pref]').forEach(i => i.onchange = () => AL.setPrefs({ [i.dataset.pref]: i.checked }));
     $('#movePct').onchange = e => AL.setPrefs({ movePct: +e.target.value });
     const busy = (b, f) => async () => { b.disabled = true; b.textContent = '…'; try { const r = await f(); draw(r || AL.state(), cfg); } catch (e) { draw(AL.state(), cfg, e.message); } };
+    body.querySelector('[data-install]')?.addEventListener('click', () => import('./pwa.js').then(P => P.install()));
     $('#pushOn') && ($('#pushOn').onclick = busy($('#pushOn'), () => AL.enablePush().then(r => { C.toast('📲 Push alerts on'); return r; })));
     $('#pushOff') && ($('#pushOff').onclick = busy($('#pushOff'), () => AL.disablePush()));
     $('#tgOff') && ($('#tgOff').onclick = busy($('#tgOff'), () => AL.unlinkTelegram()));

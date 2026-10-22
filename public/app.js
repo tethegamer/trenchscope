@@ -1,5 +1,6 @@
 // On the Scope frontend — vanilla JS, no build step.
 import * as BUY from './buy.js';
+import * as PWA from './pwa.js';
 import * as AL from './alerts-client.js';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -140,6 +141,8 @@ AL.initAlerts({
   getState: () => ({ watch: Object.entries(watch).map(([mint, w]) => ({ mint, symbol: w.symbol })), wallets: LS.get('wallets', []), targets: alerts }),
   onFired: ids => { const before = alerts.length; alerts = alerts.filter(a => !ids.includes(String(a.id))); if (alerts.length !== before) { localStorage.setItem('ts:alerts', JSON.stringify(alerts)); renderAlertCount(); } },
 });
+PWA.initPWA({ toast });
+{ const ib = $('#installBtn'); const sync = () => { ib.hidden = !PWA.canInstall(); }; sync(); PWA.onChange(sync); ib.onclick = () => PWA.install(); }
 $('#alertsBtn').onclick = () => {
   const d = $('#drawer');
   if (!d.hidden) return (d.hidden = true);

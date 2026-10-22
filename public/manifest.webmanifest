@@ -1,1 +1,62 @@
-{"name":"On the Scope","short_name":"On the Scope","start_url":"/","display":"standalone","background_color":"#070b14","theme_color":"#070b14","icons":[{"src":"/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"/icon-512.png","sizes":"512x512","type":"image/png"}]}
+{
+ "id": "/",
+ "name": "On the Scope",
+ "short_name": "On the Scope",
+ "description": "Memecoin screener with a safety score on every row, smart-money tags, alerts and on-site buys.",
+ "start_url": "/?source=pwa",
+ "scope": "/",
+ "display": "standalone",
+ "display_override": [
+  "standalone",
+  "minimal-ui"
+ ],
+ "orientation": "portrait-primary",
+ "background_color": "#070b14",
+ "theme_color": "#07090d",
+ "categories": [
+  "finance",
+  "utilities"
+ ],
+ "icons": [
+  {
+   "src": "/icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "/icon-maskable-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ],
+ "shortcuts": [
+  {
+   "name": "Watchlist",
+   "url": "/profile?tab=watch",
+   "icons": [
+    {
+     "src": "/icon-192.png",
+     "sizes": "192x192"
+    }
+   ]
+  },
+  {
+   "name": "Alerts",
+   "url": "/profile?tab=alerts",
+   "icons": [
+    {
+     "src": "/icon-192.png",
+     "sizes": "192x192"
+    }
+   ]
+  }
+ ]
+}

@@ -85,6 +85,12 @@ The browser keeps a random id and re-syncs its watchlist / wallets / targets to 
 - iPhone/iPad: web push only works after *Share → Add to Home Screen* (iOS 16.4+); the tab explains this.
 - Render's free disk is wiped on deploy; browsers re-sync automatically on their next visit, Telegram links are restored from a signed token.
 
+## 📲 Install as an app (PWA: `public/manifest.webmanifest`, `public/sw.js`, `public/pwa.js`)
+- Android / desktop Chrome, Edge, Brave: tap the **⬇ install icon** in the header (or the "Get the app" banner on the 2nd visit) for the native install prompt.
+- iPhone / iPad: the same button opens step-by-step **Share → Add to Home Screen** instructions (and warns if you're inside the X/Telegram in-app browser). Installing is also what unlocks push alerts on iOS.
+- T-crosshair icons: 192, 512, maskable 512 (safe-zone padded) and a 180 Apple touch icon. Shortcuts for Watchlist and Alerts.
+- **No stale prices, ever:** the service worker never touches `/api/*`, non-GET requests or other origins. Those always go to the network. Pages and JS/CSS are network-first, with the cached copy used only offline (an offline page says prices are paused). Bump `VERSION` in `sw.js` to purge old caches.
+
 ## 👑 OG vs VAMP (`lib/og.js`)
 When a coin pumps, vamps relaunch the same name/ticker. On the Scope finds every Solana token with the same identity and marks the **first one to graduate** as **OG**; later ones get a **VAMP** tag (“Vamp: reused a name that already graduated earlier”) that links to the OG.
 - **Normalization:** lowercase, accents/emojis/`$`/punctuation/spaces stripped, leading “the”, one trailing suffix (`coin`, `token`, `official`, `sol`, `onsol`, `fun`, `ai`) removed — `streamoors.fun` = `Streamoors`, `The BONK Coin 🚀` = `bonk`.
