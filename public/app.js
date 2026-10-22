@@ -54,6 +54,36 @@ function pips(s) {
   return `<span class="pips">${p(s.mintAuth ? 'bad' : 'ok', 'M', s.mintAuth ? 'Mint authority ACTIVE' : 'Mint revoked')}${p(s.freezeAuth ? 'bad' : 'ok', 'F', s.freezeAuth ? 'Freeze authority ACTIVE' : 'Freeze revoked')}${s.lpLocked == null ? p('', 'LP', s.isCurve ? 'On bonding curve' : 'LP lock unknown') : p(s.lpLocked >= 90 ? 'ok' : s.lpLocked >= 50 ? 'wn' : 'bad', 'LP', `LP ${s.lpLocked.toFixed(0)}% locked/burned`)}${s.top10 == null ? '' : p(s.top10 > 50 ? 'bad' : s.top10 > 30 ? 'wn' : 'ok', 'T10', `Top 10 hold ${s.top10.toFixed(1)}%`)}${s.bundled ? p('bad', 'BNDL', 'Bundle / insider cluster detected') : ''}</span>`;
 }
 
+// ---------- Scope Score ----------
+const gradeCls = g => ({ good: 'g', mid: 'y', weak: 'o', bad: 'r' })[g] || 'n';
+const lblCls = l => /^(OK|LIKELY REAL)$/.test(l) ? 'g' : /^(NEUTRAL|PARTLY REAL)$/.test(l) ? 'y' : /SKETCHY/.test(l) ? 'o' : 'r';
+function scoreChip(c) {
+  if (!c) return '';
+  return `<span class="chip sscore s-${gradeCls(c.g)}" title="${esc(`Scope Score ${c.t}/100 — Coin ${c.c ?? 'n/a'}${c.cl ? ' ' + c.cl : ''} · Narrative ${c.n} ${c.nl} (heuristic). ${c.r || ''} DYOR.`)}">${SCOPE_ICO}${c.t}</span>`;
+}
+function scorePanel(sc, addr, chain) {
+  const ring = (v, cls, size = 64) => `<div class="sring s-${cls}" style="--v:${v};width:${size}px;height:${size}px"><b>${v}</b></div>`;
+  const rows = items => items.map(i => `<div class="si ${i.level}"><div class="sil"><span>${esc(i.label)}</span><b class="mono">${esc(String(i.value))}</b></div><div class="sib"><i style="width:${i.max ? (i.points / i.max * 100).toFixed(0) : 0}%"></i></div><div class="sin"><span>${esc(i.note)}</span><span class="mono dim">${i.points}/${i.max}</span></div></div>`).join('');
+  const c = sc.coin, n = sc.narrative;
+  return `<div class="sc-top">${ring(sc.total, gradeCls(sc.grade), 72)}
+    <div class="sc-mid"><div class="sc-t">Scope Score <span class="dim">/100</span>${glossLink}</div>
+      <div class="sc-pills">${c ? `<span class="spill s-${lblCls(c.label)}">COIN ${c.score} · ${c.label}</span>` : `<span class="spill s-n">COIN n/a on this chain</span>`}<span class="spill s-${lblCls(n.label)}">NARRATIVE ${n.score} · ${n.label}</span></div>
+      <div class="sc-r">${esc(sc.reason)}</div></div></div>
+    <details class="sc-bd"><summary>Breakdown <span class="dim">· how we got ${sc.total}</span></summary>
+      <div class="sc-cols">${c ? `<div><h4>Coin fairness <span class="dim">${c.score}/100 · 60% of total</span></h4>${rows(c.items)}${c.caps.length ? `<div class="sc-cap">⚠ ${c.caps.map(esc).join(' · ')}</div>` : ''}<div class="dim sc-src">Source: ${esc(c.source)}</div></div>` : ''}
+      <div><h4>Narrative <span class="dim">${n.score}/100 · heuristic${c ? ' · 40% of total' : ''}</span></h4>${rows(n.items)}<div class="dim sc-src">Heuristic: checks links listed on DexScreener, whether the site loads, its domain age (RDAP) and GitHub activity. It can’t judge if the story is true.</div></div></div>
+    </details>
+    <div class="sc-disc">${esc(sc.disclaimer)} <span class="dim">· updated ${age(sc.computedAt)} ago · <a href="/api/score/${esc(chain)}/${esc(addr)}" target="_blank" rel="noopener">API</a></span></div>`;
+}
+async function loadScore(addr, chain) {
+  const el = $('#scoreCard'); if (!el) return;
+  try {
+    const sc = await api(`/api/score/${chain}/${encodeURIComponent(addr)}`);
+    if ($('#scoreCard') === el) el.innerHTML = scorePanel(sc, addr, chain);
+  } catch (e) { if ($('#scoreCard') === el) el.innerHTML = `<div class="mut">Scope Score unavailable right now (${esc(e.message)}). <button class="tf" id="scRetry">Retry ↻</button></div>`; $('#scRetry')?.addEventListener('click', () => { el.innerHTML = scoreSkel; loadScore(addr, chain); }); }
+}
+const scoreSkel = `<div class="sc-top"><div class="sring s-n" style="--v:0;width:72px;height:72px"><b>…</b></div><div class="sc-mid"><div class="sc-t">Scope Score</div><div class="skel" style="width:240px;height:20px;margin:6px 0"></div><div class="dim" style="font-size:12px">Scanning holders, launch snipers, dev wallet, website, socials…</div></div></div>`;
+
 // ---------- paid placements ----------
 const SCOPE_ICO = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>';
 const scopeTag = big => `<span class="chip scope" title="Scoped: the project paid for an enhanced profile and On the Scope reviewed the submitted info. This is a paid listing, not an endorsement — always check the safety score.">${SCOPE_ICO}${big ? ' Scoped' : ''}</span>`;
@@ -152,7 +182,7 @@ const TABS = [
 const DEF = { chain: 'solana', tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, ogOnly: false, vvOnly: false, sort: null, dir: -1 };
 let st = { ...DEF, ...LS.get('filters', {}) };
 const saveSt = () => LS.set('filters', st);
-let rows = [], safetyMap = {}, ogMap = {}, lastUpdated = 0;
+let rows = [], safetyMap = {}, ogMap = {}, scoreMap = {}, lastUpdated = 0;
 let CHAINS = [{ id: 'solana', name: 'Solana', color: '#14f195' }];
 const chainOf = id => id === 'all' ? { id: 'all', name: 'All chains', color: '#9aa4b8' } : (CHAINS.find(c => c.id === id) || { id, name: id, color: '#9aa4b8' });
 const chainDot = (id, big) => { const c = chainOf(id); return `<span class="cdot${big ? ' big' : ''}" style="--c:${c.color}" title="${esc(c.name)}">${esc(c.name.replace(/[^A-Za-z]/g, '').slice(0, 2))}</span>`; };
@@ -173,7 +203,7 @@ function chainSheet() {
 document.addEventListener('click', e => { if (e.target.closest('#chainBtn')) chainSheet(); });
 
 function filtered() {
-  let r = rows.map(x => ({ ...x, safety: safetyMap[x.mint] || x.safety, og: ogMap[x.mint] || x.og }));
+  let r = rows.map(x => ({ ...x, safety: safetyMap[x.mint] || x.safety, og: ogMap[x.mint] || x.og, score: scoreMap[x.mint] || x.score }));
   const n = v => v ?? 0;
   if (st.liq) r = r.filter(x => n(x.liquidity) >= st.liq || (st.tab === 'pumpfun' && x.liquidity == null));
   if (st.vol) r = r.filter(x => n(x.volume?.h24) >= st.vol);
@@ -240,7 +270,7 @@ async function load(first) {
     } else {
       const d = await api('/api/list/' + st.tab + (st.chain !== 'solana' ? '?chain=' + st.chain : ''));
       rows = d.rows; lastUpdated = d.updatedAt;
-      for (const r of rows) { if (r.safety) safetyMap[r.mint] = r.safety; if (r.og) ogMap[r.mint] = r.og; }
+      for (const r of rows) { if (r.safety) safetyMap[r.mint] = r.safety; if (r.og) ogMap[r.mint] = r.og; if (r.score) scoreMap[r.mint] = r.score; }
     }
     draw(); pollSafety();
   } catch (e) {
@@ -249,13 +279,14 @@ async function load(first) {
 }
 async function pollSafety() {
   if (st.chain !== 'solana') return;
-  const need = rows.slice(0, 150).map(r => r.mint).filter(m => !safetyMap[m] || !ogMap[m]);
+  const need = rows.slice(0, 150).map(r => r.mint).filter(m => !safetyMap[m] || !ogMap[m] || !scoreMap[m]);
   if (!need.length) return;
   try {
-    const { safety, og } = await api('/api/safety?mints=' + need.join(','));
+    const { safety, og, score } = await api('/api/safety?mints=' + need.join(','));
     let n = 0;
     for (const [m, s] of Object.entries(safety)) if (!safetyMap[m]) { safetyMap[m] = s; n++; }
     for (const [m, o] of Object.entries(og || {})) if (!ogMap[m]) { ogMap[m] = o; n++; }
+    for (const [m, c] of Object.entries(score || {})) if (!scoreMap[m] || scoreMap[m].t !== c.t) { scoreMap[m] = c; n++; }
     if (n) draw();
   } catch {}
 }
@@ -278,7 +309,7 @@ function draw() {
     return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class=""${x.promo ? 'promoted' : ''}">
       <td class="l"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}" title="Watchlist">${isWatched(x.mint) ? '★' : '☆'}</button></td>
       <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''}</span></div></div></td>
-      <td class="l"><span class="safe">${badge(x.safety)}${pips(x.safety)}</span></td>
+      <td class="l"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span></td>
       <td class="mono">${price(x.priceUsd)}</td><td class="mut">${age(x.createdAt)}</td>
       <td>${tot ? `<div class="txbar"><span>${tot.toLocaleString()}</span><span class="b"><i style="width:${(b / tot * 100).toFixed(0)}%"></i></span></div>` : '<span class="dim">—</span>'}</td>
       <td>${usd(x.volume?.h24)}</td><td>${pct(x.change?.m5)}</td><td>${pct(x.change?.h1)}</td><td>${pct(x.change?.h6)}</td><td>${pct(x.change?.h24)}</td>
@@ -288,7 +319,7 @@ function draw() {
   $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
       <div class="tok" style="grid-column:1/3">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)}</span></div></div>
       <div class="pr"><b class="mono">${price(x.priceUsd)}</b>${pct(x.change?.h24 ?? x.change?.h1)}</div>
-      <div class="sf"><span class="safe">${badge(x.safety)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></span></div>
+      <div class="sf"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></span></div>
       <div class="meta"><span>Liq <b>${usd(x.liquidity)}</b></span><span>Vol <b>${usd(x.volume?.h24)}</b></span><span>MCap <b>${usd(x.mcap || x.fdv)}</b></span><span>1h ${pct(x.change?.h1)}</span></div></div>`).join('');
   app.querySelectorAll('[data-m]').forEach(el => el.onclick = e => {
     if (e.target.closest('[data-stop]')) return;
@@ -357,6 +388,7 @@ async function tokenPage(mint, chain = 'solana') {
     ${d.pump ? `<a class="btn" href="${L.pump}" target="_blank" rel="noopener">pump.fun ↗</a>` : ''}
     ${isSol ? '' : '<!--'}<a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get Scoped / Boost'}</a>${isSol ? '' : '-->'}
   </div>
+  <div class="card scorecard" id="scoreCard">${scoreSkel}</div>
   <div class="kpis">
     <div class="kpi"><small>Market cap</small><b>${usd(m.mcap ?? d.pump?.usdMcap)}</b><span class="dim" style="font-size:12px">FDV ${usd(m.fdv)}</span></div>
     <div class="kpi"><small>Liquidity</small><b>${usd(m.liquidity)}</b><span class="dim" style="font-size:12px">${m.liquidity && m.mcap ? 'Liq/MCap ' + (m.liquidity / m.mcap * 100).toFixed(1) + '%' : '&nbsp;'}</span></div>
@@ -409,6 +441,7 @@ async function tokenPage(mint, chain = 'solana') {
     if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     toast(`Alert set: ${esc(d.symbol)} ${$('#adir').value} ${price(p)}`);
   };
+  loadScore(mint, chain);
   if (m.pair) {
     initChart(m.pair, m.priceUsd);
     loadTrades(m.pair, d.symbol); const iv = setInterval(() => loadTrades(m.pair, d.symbol), 20000); cleanup.push(() => clearInterval(iv));
@@ -563,7 +596,8 @@ function glossary(force) {
     <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate — i.e. migrate from its launchpad to open trading.</dd>
     <dt><span class="chip vamp">VAMP</span></dt><dd>A later launch reusing an OG's name that has also graduated.</dd>
     <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 5x+ the OG's. It can lose the badge if it drops back under 5x.</dd>
-    <dt>${scopeTag()}</dt><dd><b>Scoped</b>: the team paid for an enhanced profile that On the Scope reviewed. A paid listing, not an endorsement.</dd></dl>
+    <dt>${scopeTag()}</dt><dd><b>Scoped</b>: the team paid for an enhanced profile that On the Scope reviewed. A paid listing, not an endorsement.</dd>
+    <dt><span class="chip sscore s-g">${SCOPE_ICO}72</span></dt><dd><b>Scope Score</b> (0–100): 60% <b>coin fairness</b> (insiders, bundles, snipers, dev wallet, top holders, LP, fees → OK / NEUTRAL / SKETCHY / RIGGED) + 40% <b>narrative</b>, a heuristic of website, domain age, socials and GitHub (LIKELY REAL / PARTLY REAL / LIKELY LARP). DYOR.</dd></dl>
     <p class="dim" style="font-size:12px;margin:-6px 0 16px">Tokens that haven't graduated from their launchpad yet get no OG/VAMP tag.</p>
     <div class="mbtns"><button class="btn" id="glNo">Don't show again</button><button class="btn pri" id="glOk">Okay</button></div></div></div>`);
   const close = () => $('#gloss')?.remove();

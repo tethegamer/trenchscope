@@ -45,6 +45,14 @@ No login, no wallet signing — everything lives in `localStorage`.
 - **PnL card:** 1200×675 PNG drawn on canvas with the T-crosshair logo — download, copy, native share, or post to X.
 - **Connect X:** placeholder (coming soon).
 
+## 🎯 Scope Score (`lib/score.js`)
+One 0–100 number on every token page (full breakdown) and as a compact chip in lists.
+- **Coin fairness** (60%): insiders/linked wallets, bundles, launch snipers (first ~2 slots, scanned over Solana RPC), dev holdings + whether the dev sold, top-10 %, holders, LP lock, mint/freeze/fees. Labels: OK / NEUTRAL / SKETCHY / RIGGED. EVM chains use GoPlus.
+- **Narrative** (40%, a *heuristic*): website reachable + content, domain age (RDAP), X / Telegram / Discord links, GitHub repo + recent commits. Labels: LIKELY REAL / PARTLY REAL / LIKELY LARP.
+- Public JSON: `GET /api/score/:chain/:address` (`?quick=1` skips the launch scan). Cached 10 min. CORS open.
+- Website fetching goes through `lib/safefetch.js` (blocks private/loopback IPs, size + time limits).
+- Optional env: `SCORE_RPC` (faster Solana RPC for the launch scan; default PublicNode).
+
 ## 👑 OG vs VAMP (`lib/og.js`)
 When a coin pumps, vamps relaunch the same name/ticker. On the Scope finds every Solana token with the same identity and marks the **first one to graduate** as **OG**; later ones get a **VAMP** tag (“Vamp: reused a name that already graduated earlier”) that links to the OG.
 - **Normalization:** lowercase, accents/emojis/`$`/punctuation/spaces stripped, leading “the”, one trailing suffix (`coin`, `token`, `official`, `sol`, `onsol`, `fun`, `ai`) removed — `streamoors.fun` = `Streamoors`, `The BONK Coin 🚀` = `bonk`.

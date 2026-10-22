@@ -8,6 +8,8 @@ const chains = require('./lib/chains');
 const pay = require('./lib/payments');
 const crypto = require('crypto');
 const QRCode = require('qrcode');
+const scoreLib = require('./lib/score');
+const { safeFetch } = require('./lib/safefetch');
 
 const PORT = process.env.PORT || 3000;
 const RPC = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
@@ -244,7 +246,7 @@ setInterval(async () => {
   const t = ogQ.shift();
   try { if (!og.peek(t.mint)) await og.check(t); } catch {} finally { ogQueued.delete(t.mint); ogBusy = false; }
 }, 250).unref();
-const withIntel = (r, boosts = pay.activeBoosts(), scoped = pay.scopedMints()) => ({ ...r, safety: peekSafety(r.mint) || null, og: og.peek(r.mint) || null, promo: boosts[r.mint] || 0, scope: scoped.has(r.mint) });
+const withIntel = (r, boosts = pay.activeBoosts(), scoped = pay.scopedMints()) => ({ ...r, safety: peekSafety(r.mint) || null, score: peekScore('solana', r.mint), og: og.peek(r.mint) || null, promo: boosts[r.mint] || 0, scope: scoped.has(r.mint) });
 
 // ---------- Solana RPC ----------
 async function rpc(method, params) {
@@ -252,6 +254,82 @@ async function rpc(method, params) {
   if (d.error) throw new Error(d.error.message);
   return d.result;
 }
+
+// ---------- Scope Score ----------
+// Fast public RPC for the launch scan (PublicNode handles many getTransaction calls/sec); falls back to SOLANA_RPC.
+const FAST_RPC = process.env.SCORE_RPC || 'https://solana-rpc.publicnode.com';
+async function solRpc(method, params) {
+  try {
+    const d = await getJSON(FAST_RPC, { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), timeout: 12000, prio: PRIO.normal });
+    if (d.error) throw new Error(d.error.message);
+    return d.result;
+  } catch (e) { return rpc(method, params); }
+}
+limits[new URL(FAST_RPC).host] = 40;
+const scorer = scoreLib.createScorer({ getJSON: (u, o = {}) => getJSON(u, { prio: PRIO.low, ...o }), safeFetch, cached, solRpc });
+const GOPLUS_IDS = { ethereum: 1, bsc: 56, base: 8453, polygon: 137, avalanche: 43114, arbitrum: 42161, optimism: 10, cronos: 25, zksync: 324, linea: 59144, sonic: 146, worldchain: 480, abstract: 2741 };
+const SCORE_TTL = 10 * 60e3;
+function scoreKey(chain, addr) { return `score:${chain}:${chain === 'solana' ? addr : addr.toLowerCase()}`; }
+// full=true also runs the launch (sniper / dev-sold) scan; background list scoring skips it.
+async function scoreFor(chain, addr, { full = true, prio = PRIO.low } = {}) {
+  const key = scoreKey(chain, addr);
+  const hit = store.get(key);
+  if (hit?.value && Date.now() - hit.at < SCORE_TTL && (hit.value.full || !full)) return hit.value;
+  if (hit?.pending && (hit.full || !full)) return hit.pending;
+  const pending = (async () => {
+    let coin = null, links = { websites: [], socials: [] }, description = '', symbol = null, name = null;
+    if (chain === 'solana') {
+      const [rep, pairs] = await Promise.all([
+        safetyFor(addr, true, prio).catch(() => null),
+        cached('dsp:' + addr, 30e3, () => getJSON(`https://api.dexscreener.com/tokens/v1/solana/${addr}`, { prio })).catch(() => []),
+      ]);
+      const p = (pairs || []).filter(x => x.baseToken?.address === addr).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+      const withInfo = p.find(x => x.info?.websites?.length || x.info?.socials?.length) || p[0];
+      links = { websites: withInfo?.info?.websites || [], socials: withInfo?.info?.socials || [] };
+      symbol = p[0]?.baseToken?.symbol || rep?.symbol; name = p[0]?.baseToken?.name || rep?.name;
+      const pump = store.get('pf:' + addr)?.value; if (pump?.description) description = pump.description;
+      let early = null;
+      if (full && rep && !rep.unavailable) {
+        const rc = store.get('rc:' + addr)?.value;
+        early = await Promise.race([scorer.earlyScan(addr, rep.creator, rc?.topHolders, rep.supply), new Promise(r => setTimeout(() => r({ unavailable: 'Launch scan still running — refresh in a minute' }), 15000))]).catch(e => ({ unavailable: 'Launch scan failed (' + e.message.slice(0, 40) + ')' }));
+        if (early?.unavailable && /running/.test(early.unavailable)) setTimeout(() => store.delete(key), 1000).unref?.();
+      }
+      if (!p.length && (!rep || rep.unavailable)) { const e = new Error('Token not found — no pairs or safety data yet'); e.status = 404; throw e; }
+      coin = scoreLib.coinSolana(rep, early);
+      if (coin && early && !early.unavailable) coin.early = early;
+    } else {
+      const pairs = await cached(`dsp:${chain}:${addr.toLowerCase()}`, 30e3, () => getJSON(`https://api.dexscreener.com/tokens/v1/${chain}/${addr}`, { prio })).catch(() => []);
+      const p = (pairs || []).filter(x => String(x.baseToken?.address).toLowerCase() === addr.toLowerCase());
+      const withInfo = p.find(x => x.info?.websites?.length || x.info?.socials?.length) || p[0];
+      links = { websites: withInfo?.info?.websites || [], socials: withInfo?.info?.socials || [] };
+      symbol = p[0]?.baseToken?.symbol; name = p[0]?.baseToken?.name;
+      if (!p.length) { const e = new Error('Token not found on DexScreener for this chain'); e.status = 404; throw e; }
+      const id = GOPLUS_IDS[chain];
+      if (id && /^0x[0-9a-fA-F]{40}$/.test(addr)) {
+        const g = await cached(`gpe:${id}:${addr.toLowerCase()}`, 30 * 60e3, async () => (await getJSON(`https://api.gopluslabs.io/api/v1/token_security/${id}?contract_addresses=${addr}`, { prio, timeout: 10000 }))?.result?.[addr.toLowerCase()] || null).catch(() => null);
+        coin = scoreLib.coinEvm(g);
+      }
+    }
+    const narr = await scorer.narrativeFor({ ...links, description });
+    const out = { chain, address: addr, symbol, name, ...scoreLib.combine(coin, narr), full };
+    store.set(key, { value: out, at: Date.now() });
+    return out;
+  })().catch(e => { const h = store.get(key); if (h?.value) store.set(key, { value: h.value, at: h.at }); else store.delete(key); throw e; });
+  store.set(key, { ...(hit || {}), pending, full });
+  return pending;
+}
+const chip = s => s && { t: s.total, c: s.coin?.score ?? null, cl: s.coin?.label || null, n: s.narrative.score, nl: s.narrative.label, g: s.grade, r: s.reason };
+function peekScore(chain, addr) { return chip(store.get(scoreKey(chain, addr))?.value); }
+// background: score list tokens once their safety scan is cached (quick mode = no launch scan)
+const scoreQ = []; const scoreQueued = new Set(); let scoreBusy = 0;
+function enqueueScore(mints) { for (const m of mints) if (m && !scoreQueued.has(m) && !store.get(scoreKey('solana', m))?.value) { scoreQueued.add(m); scoreQ.push(m); } }
+setInterval(() => {
+  while (scoreBusy < 2 && scoreQ.length) {
+    const i = scoreQ.findIndex(m => peekSafety(m)); if (i < 0) break;
+    const [m] = scoreQ.splice(i, 1); scoreBusy++;
+    scoreFor('solana', m, { full: false }).catch(() => {}).finally(() => { scoreBusy--; scoreQueued.delete(m); });
+  }
+}, 400).unref();
 
 // ---------- API ----------
 const app = express();
@@ -304,7 +382,7 @@ app.get('/api/list/:kind', async (req, res) => {
   if (chain !== 'solana') {
     if (!['trending', 'new', 'gainers'].includes(req.params.kind)) return fail(res, new Error('list not available on this chain'), 404);
     if (chain !== 'all' && !chains.byId[chain]) return fail(res, new Error('unsupported chain'), 404);
-    try { const rows = await chainList(req.params.kind, chain); res.set('Cache-Control', 'no-cache'); return res.json({ updatedAt: store.get(`clist:${req.params.kind}:${chain}`)?.at || Date.now(), rows: rows.map(r => ({ ...r, safety: null, og: null, promo: 0, scope: false })) }); }
+    try { const rows = await chainList(req.params.kind, chain); res.set('Cache-Control', 'no-cache'); return res.json({ updatedAt: store.get(`clist:${req.params.kind}:${chain}`)?.at || Date.now(), rows: rows.map(r => ({ ...r, safety: null, og: null, promo: 0, scope: false, score: peekScore(r.chain || chain, r.mint) })) }); }
     catch (e) { return fail(res, e); }
   }
   const fn = lists[req.params.kind];
@@ -319,7 +397,7 @@ app.get('/api/list/:kind', async (req, res) => {
       rows = rows.map((r, i) => ({ r, i })).sort((a, b) => (boosts[b.r.mint] || 0) - (boosts[a.r.mint] || 0) || a.i - b.i).map(x => x.r);
     }
     for (const r of rows) og.sample(r.mint, r.mcap ?? r.fdv);
-    enqueue(rows.slice(0, 120).map(r => r.mint)); enqueueOG(rows.slice(0, 120));
+    enqueue(rows.slice(0, 120).map(r => r.mint)); enqueueOG(rows.slice(0, 120)); enqueueScore(rows.slice(0, 120).map(r => r.mint));
     res.set('Cache-Control', 'no-cache');
     res.json({ updatedAt: store.get('list:' + req.params.kind)?.at || Date.now(), rows: rows.map(r => withIntel(r, boosts, scoped)) });
   } catch (e) { fail(res, e); }
@@ -328,8 +406,10 @@ app.get('/api/safety', (req, res) => {
   const mints = String(req.query.mints || '').split(',').filter(isMint).slice(0, 200);
   enqueue(mints);
   const out = {}, ogOut = {};
-  for (const m of mints) { const s = peekSafety(m); if (s) out[m] = s; const o = og.peek(m); if (o) ogOut[m] = o; }
-  ok(res, { safety: out, og: ogOut, pending: safetyQ.length, ogPending: ogQ.length }, 5);
+  const scOut = {};
+  for (const m of mints) { const s = peekSafety(m); if (s) out[m] = s; const o = og.peek(m); if (o) ogOut[m] = o; const c = peekScore('solana', m); if (c) scOut[m] = c; }
+  enqueueScore(mints);
+  ok(res, { safety: out, og: ogOut, score: scOut, pending: safetyQ.length, ogPending: ogQ.length }, 5);
 });
 app.get('/api/search', async (req, res) => {
   const q = String(req.query.q || '').trim().slice(0, 80);
@@ -360,6 +440,15 @@ async function chainToken(chain, addr, res) {
     ok(res, { mint: addr, chain, main, pairs: ps.slice(0, 8).map(fromDex), safety: { unavailable: true, error: 'Safety scan is Solana-only for now' }, dev: null, pump: null, og: null, flippedBy: [], scope: null, promo: 0, name: main.name, symbol: main.symbol, icon: main.icon }, 20);
   } catch (e) { fail(res, e); }
 }
+app.get('/api/score/:chain/:address', async (req, res) => {
+  const chain = String(req.params.chain).toLowerCase(), addr = String(req.params.address);
+  if (chain === 'solana' ? !isMint(addr) : !chains.byId[chain] || !/^[A-Za-z0-9:_.-]{20,80}$/.test(addr)) return fail(res, new Error('invalid chain or address'), 400);
+  try {
+    const s = await scoreFor(chain, addr, { full: req.query.quick !== '1', prio: PRIO.high });
+    res.set('Access-Control-Allow-Origin', '*');
+    ok(res, s, 60);
+  } catch (e) { res.set('Access-Control-Allow-Origin', '*'); fail(res, e, e.status); }
+});
 app.get('/api/token/:mint', async (req, res) => {
   const { mint } = req.params;
   if (req.query.chain && req.query.chain !== 'solana') return chainToken(String(req.query.chain), mint, res);
@@ -559,7 +648,7 @@ app.post('/api/admin/orders/:id/:action(approve|reject)', admin, (req, res) => {
 });
 app.post('/api/admin/orders/:id/recheck', admin, async (req, res) => { try { res.json(await pay.checkOrder(req.params.id)); } catch (e) { fail(res, e); } });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, cacheEntries: store.size }));
+app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, cacheEntries: store.size }));
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
