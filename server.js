@@ -318,6 +318,22 @@ async function scoreFor(chain, addr, { full = true, prio = PRIO.low } = {}) {
   store.set(key, { ...(hit || {}), pending, full });
   return pending;
 }
+// ---------- X reply bot (disabled unless X_API_KEY/X_API_SECRET/X_ACCESS_TOKEN/X_ACCESS_SECRET are set) ----------
+const { createXBot } = require('./lib/xbot');
+async function resolveToken({ address, chain, viaPair }) {
+  // a DexScreener link may carry a pair address — map it to the base token
+  if (viaPair && chain) {
+    const j = await cached(`dpair:${chain}:${address}`, 10 * 60e3, () => getJSON(`https://api.dexscreener.com/latest/dex/pairs/${chain}/${address}`)).catch(() => null);
+    const p = j?.pairs?.[0] || j?.pair; if (p?.baseToken?.address) return { chain: p.chainId, address: p.baseToken.address };
+  }
+  if (chain === 'solana' && !viaPair) return { chain, address };
+  const pairs = await cached('dsany:' + address.toLowerCase(), 10 * 60e3, () => getJSON(`https://api.dexscreener.com/latest/dex/tokens/${address}`)).catch(() => null);
+  const best = (pairs?.pairs || []).filter(p => String(p.baseToken?.address).toLowerCase() === address.toLowerCase() && (p.chainId === 'solana' || chains.byId[p.chainId])).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+  return best ? { chain: best.chainId, address: best.baseToken.address } : null;
+}
+const publicBase = () => String(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+const xbot = createXBot({ scoreFor: (c, a) => scoreFor(c, a, { full: true, prio: PRIO.normal }), resolveChain: resolveToken, baseUrl: publicBase, stateFile: process.env.XBOT_STATE_FILE || path.join(__dirname, 'data', 'xbot-state.json') });
+xbot.start();
 const chip = s => s && { t: s.total, c: s.coin?.score ?? null, cl: s.coin?.label || null, n: s.narrative.score, nl: s.narrative.label, g: s.grade, r: s.reason };
 function peekScore(chain, addr) { return chip(store.get(scoreKey(chain, addr))?.value); }
 // background: score list tokens once their safety scan is cached (quick mode = no launch scan)
@@ -648,7 +664,7 @@ app.post('/api/admin/orders/:id/:action(approve|reject)', admin, (req, res) => {
 });
 app.post('/api/admin/orders/:id/recheck', admin, async (req, res) => { try { res.json(await pay.checkOrder(req.params.id)); } catch (e) { fail(res, e); } });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, cacheEntries: store.size }));
+app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, pausedUntil: xbot.status.pausedUntil }, cacheEntries: store.size }));
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));

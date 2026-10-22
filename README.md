@@ -53,6 +53,10 @@ One 0–100 number on every token page (full breakdown) and as a compact chip in
 - Website fetching goes through `lib/safefetch.js` (blocks private/loopback IPs, size + time limits).
 - Optional env: `SCORE_RPC` (faster Solana RPC for the launch scan; default PublicNode).
 
+## 🤖 X reply bot (`lib/xbot.js`)
+Tag the bot under a post with a contract address and it replies with the Scope Score + token link. Off until
+`X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` are set. Setup and costs: [docs/x-bot.md](docs/x-bot.md).
+
 ## 👑 OG vs VAMP (`lib/og.js`)
 When a coin pumps, vamps relaunch the same name/ticker. On the Scope finds every Solana token with the same identity and marks the **first one to graduate** as **OG**; later ones get a **VAMP** tag (“Vamp: reused a name that already graduated earlier”) that links to the OG.
 - **Normalization:** lowercase, accents/emojis/`$`/punctuation/spaces stripped, leading “the”, one trailing suffix (`coin`, `token`, `official`, `sol`, `onsol`, `fun`, `ai`) removed — `streamoors.fun` = `Streamoors`, `The BONK Coin 🚀` = `bonk`.
