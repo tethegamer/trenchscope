@@ -1,10 +1,12 @@
 // On the Scope frontend — vanilla JS, no build step.
+import * as AL from './alerts-client.js';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : null;
 const api = async p => { const r = await fetch(p); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; };
-const LS = { get: (k, d) => { try { return JSON.parse(localStorage.getItem('ts:' + k)) ?? d; } catch { return d; } }, set: (k, v) => localStorage.setItem('ts:' + k, JSON.stringify(v)) };
+const LS = { get: (k, d) => { try { return JSON.parse(localStorage.getItem('ts:' + k)) ?? d; } catch { return d; } }, set: (k, v) => { localStorage.setItem('ts:' + k, JSON.stringify(v)); if (SYNC_KEYS.has(k)) AL.scheduleSync(); } };
+const SYNC_KEYS = new Set(['watch', 'wallets', 'alerts']);
 
 // ---------- formatting ----------
 function usd(n, d) {
@@ -124,7 +126,7 @@ async function checkAlerts() {
       if ((a.dir === 'above' && p >= a.price) || (a.dir === 'below' && p <= a.price)) {
         const msg = `🔔 ${a.symbol} is ${a.dir} ${price(a.price)} — now ${price(p)}`;
         toast(`<b>${msg}</b><br><a href="/token/${a.mint}" data-link style="color:var(--b)">Open chart →</a>`, a.dir === 'above' ? 'var(--g)' : 'var(--r)');
-        if ('Notification' in window && Notification.permission === 'granted') new Notification('On the Scope alert', { body: msg.replace(/<[^>]+>/g, '') });
+        if (!AL.remoteActive() && 'Notification' in window && Notification.permission === 'granted') new Notification('On the Scope alert', { body: msg.replace(/<[^>]+>/g, '') });
         alerts = alerts.filter(x => x.id !== a.id); changed = true;
       }
     }
@@ -132,10 +134,15 @@ async function checkAlerts() {
   } catch {}
 }
 setInterval(checkAlerts, 30000); checkAlerts();
+AL.initAlerts({
+  LS,
+  getState: () => ({ watch: Object.entries(watch).map(([mint, w]) => ({ mint, symbol: w.symbol })), wallets: LS.get('wallets', []), targets: alerts }),
+  onFired: ids => { const before = alerts.length; alerts = alerts.filter(a => !ids.includes(String(a.id))); if (alerts.length !== before) { localStorage.setItem('ts:alerts', JSON.stringify(alerts)); renderAlertCount(); } },
+});
 $('#alertsBtn').onclick = () => {
   const d = $('#drawer');
   if (!d.hidden) return (d.hidden = true);
-  d.innerHTML = `<h3 style="margin:0 0 8px">Price alerts</h3><p class="mut" style="margin:0 0 10px;font-size:12px">Checked every 30s while this tab is open. Stored only in your browser.</p>` +
+  d.innerHTML = `<h3 style="margin:0 0 8px">Price alerts</h3><p class="mut" style="margin:0 0 10px;font-size:12px">${AL.remoteActive() ? 'Push/Telegram alerts are on — these fire even when the site is closed.' : 'Checked every 30s while this tab is open. <a href="/profile?tab=alerts" data-link style="color:var(--b)">Turn on push or Telegram →</a>'}</p>` +
     (alerts.length ? alerts.map(a => `<div class="al"><a href="/token/${a.mint}" data-link><b>${esc(a.symbol)}</b></a><span class="mut">${a.dir}</span><span class="mono">${price(a.price)}</span><button class="x" data-del="${a.id}">✕</button></div>`).join('') : '<div class="mut">No alerts yet. Open a token and set one.</div>');
   d.hidden = false;
   d.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { alerts = alerts.filter(a => a.id != b.dataset.del); LS.set('alerts', alerts); renderAlertCount(); d.hidden = true; $('#alertsBtn').click(); });

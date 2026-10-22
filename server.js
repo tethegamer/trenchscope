@@ -334,6 +334,18 @@ async function resolveToken({ address, chain, viaPair }) {
 const publicBase = () => String(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
 const xbot = createXBot({ scoreFor: (c, a) => scoreFor(c, a, { full: true, prio: PRIO.normal }), resolveChain: resolveToken, baseUrl: publicBase, stateFile: process.env.XBOT_STATE_FILE || path.join(__dirname, 'data', 'xbot-state.json') });
 xbot.start();
+
+// ---------- wallet tracker + alerts (web push / Telegram) ----------
+const { createWalletTracker } = require('./lib/wallettracker');
+const { createAlerts } = require('./lib/alerts');
+const tracker = createWalletTracker({ rpc: (m, p) => solRpc(m, p), perTick: +process.env.WALLET_POLL_PER_TICK || 8 });
+async function pricesFor(mints) {
+  const ds = await dexTokens(mints); const out = new Map();
+  for (const [m, p] of ds) { const d = fromDex(p); out.set(m, { priceUsd: d.priceUsd, symbol: d.symbol, mcap: d.mcap }); }
+  return out;
+}
+const alerts = createAlerts({ dataDir: path.join(__dirname, 'data'), getPrices: pricesFor, ogPeek: m => og.peek(m), ogResults: () => og.db.results, tracker, baseUrl: publicBase });
+alerts.start(); tracker.start();
 const chip = s => s && { t: s.total, c: s.coin?.score ?? null, cl: s.coin?.label || null, n: s.narrative.score, nl: s.narrative.label, g: s.grade, r: s.reason };
 function peekScore(chain, addr) { return chip(store.get(scoreKey(chain, addr))?.value); }
 // background: score list tokens once their safety scan is cached (quick mode = no launch scan)
@@ -582,6 +594,11 @@ app.get('/api/prices', async (req, res) => {
     ok(res, { prices: out }, 10);
   } catch (e) { fail(res, e); }
 });
+// ---------- alerts ----------
+app.get('/api/alerts/config', (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ vapidPublicKey: alerts.vapidPublicKey, telegram: { enabled: alerts.status.telegram.enabled, username: alerts.status.telegram.username }, push: true }); });
+app.post('/api/alerts/sync', express.json({ limit: '60kb' }), (req, res) => { try { res.set('Cache-Control', 'no-store'); res.json(alerts.sync(req.body)); } catch (e) { fail(res, e, e.status || 500); } });
+app.post('/api/alerts/test', express.json({ limit: '2kb' }), async (req, res) => { try { res.json(await alerts.test(String(req.body?.sid || ''))); } catch (e) { fail(res, e, e.status || 500); } });
+app.post('/api/alerts/delete', express.json({ limit: '2kb' }), (req, res) => { alerts.remove(String(req.body?.sid || '')); res.json({ ok: true }); });
 // ---------- profile / wallet PnL helpers ----------
 // SOL/USD history for valuing past SOL-quoted trades (Raydium SOL/USDC pool on GeckoTerminal, cached 30m).
 const SOL_USDC_POOL = '58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2';
@@ -664,9 +681,10 @@ app.post('/api/admin/orders/:id/:action(approve|reject)', admin, (req, res) => {
 });
 app.post('/api/admin/orders/:id/recheck', admin, async (req, res) => { try { res.json(await pay.checkOrder(req.params.id)); } catch (e) { fail(res, e); } });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, pausedUntil: xbot.status.pausedUntil }, cacheEntries: store.size }));
+app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, pausedUntil: xbot.status.pausedUntil }, alerts: { subscribers: alerts.status.subscribers, vapid: alerts.status.vapid, telegram: alerts.status.telegram, sent: alerts.status.sent, lastTick: alerts.status.lastTick }, wallets: tracker.status, cacheEntries: store.size }));
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
+app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/javascript').sendFile(path.join(__dirname, 'public', 'sw.js')); });
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.get(/^\/(token\/.*|advertise|profile|order\/.*|c\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

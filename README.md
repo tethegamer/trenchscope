@@ -57,6 +57,18 @@ One 0–100 number on every token page (full breakdown) and as a compact chip in
 Tag the bot under a post with a contract address and it replies with the Scope Score + token link. Off until
 `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` are set. Setup and costs: [docs/x-bot.md](docs/x-bot.md).
 
+## 🔔 Alerts (`lib/alerts.js`, `lib/wallettracker.js`, `public/alerts-client.js`, `public/sw.js`)
+Profile → **Alerts** sends pings even when the site is closed, by **web push** and/or **Telegram**:
+price targets, watchlist moves (±5–50%), tracked-wallet buys/sells, Valid Vamp gained/lost, and new OG migrations.
+The browser keeps a random id and re-syncs its watchlist / wallets / targets to the server (stored in `data/alerts.json`).
+- **Web push** needs `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` (run `npx web-push generate-vapid-keys` once, paste both into Render's
+  Environment tab) and optionally `VAPID_SUBJECT` (`mailto:you@example.com`). If they're missing the server generates temporary keys and
+  logs a warning — push still works but every redeploy changes the keys and devices must tap *Turn on* again. Keys are never committed.
+- **Telegram**: create a bot with [@BotFather](https://t.me/BotFather) → `/newbot`, put the token in `TELEGRAM_ALERTS_BOT_TOKEN`.
+  Users tap *Link Telegram* (opens `t.me/<bot>?start=<code>`); `/stop` unlinks. Without the token the Telegram option shows "Soon".
+- iPhone/iPad: web push only works after *Share → Add to Home Screen* (iOS 16.4+); the tab explains this.
+- Render's free disk is wiped on deploy; browsers re-sync automatically on their next visit, Telegram links are restored from a signed token.
+
 ## 👑 OG vs VAMP (`lib/og.js`)
 When a coin pumps, vamps relaunch the same name/ticker. On the Scope finds every Solana token with the same identity and marks the **first one to graduate** as **OG**; later ones get a **VAMP** tag (“Vamp: reused a name that already graduated earlier”) that links to the OG.
 - **Normalization:** lowercase, accents/emojis/`$`/punctuation/spaces stripped, leading “the”, one trailing suffix (`coin`, `token`, `official`, `sol`, `onsol`, `fun`, `ai`) removed — `streamoors.fun` = `Streamoors`, `The BONK Coin 🚀` = `bonk`.

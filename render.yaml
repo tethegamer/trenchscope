@@ -30,3 +30,13 @@ services:
         sync: false
       - key: X_BOT_HANDLE
         value: OnTheScope
+      # Alerts: generate once with `npx web-push generate-vapid-keys` and paste both (keep the private key secret).
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      # Telegram alerts bot token from @BotFather (alerts over Telegram stay off until set)
+      - key: TELEGRAM_ALERTS_BOT_TOKEN
+        sync: false

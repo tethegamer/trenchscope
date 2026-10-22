@@ -4,3 +4,5 @@ node_modules
 data/og-cache.json
 data/orders.json
 data/xbot-state.json
+data/alerts.json
+data/vapid.json

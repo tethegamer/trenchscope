@@ -1,5 +1,6 @@
 // On the Scope Profile: watchlist, tracked wallets, wallet PnL estimator and shareable PnL card.
 // Everything is stored in localStorage; no wallet connection or signing. Loaded lazily from app.js.
+import * as AL from './alerts-client.js';
 let C; // helpers from app.js: { $, esc, usd, price, pct, age, short, icon, api, LS, toast, watch, toggleWatch, go, cleanup, tokenHref }
 const TOKEN_PROGRAMS = ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'];
 const isAddr = s => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s || '');
@@ -137,7 +138,7 @@ async function analyze(addr, depth, { onProgress, signal, withBalances = true } 
 }
 
 // ---------- page ----------
-const TABS = [['watch', '★ Watchlist'], ['wallets', '👛 Wallets'], ['pnl', '📈 PnL']];
+const TABS = [['watch', '★ Watchlist'], ['wallets', '👛 Wallets'], ['alerts', '🔔 Alerts'], ['pnl', '📈 PnL']];
 let pfClean = [];
 const onLeave = f => pfClean.push(f);
 export function profilePage(ctx) {
@@ -167,7 +168,7 @@ export function profilePage(ctx) {
     const save = () => { LS.set('profile', { ...prof, name: inp.value.trim().slice(0, 24) }); profilePage(C); };
     inp.onkeydown = e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') profilePage(C); }; inp.onblur = save;
   };
-  ({ watch: watchTab, wallets: walletsTab, pnl: pnlTab })[tab]();
+  ({ watch: watchTab, wallets: walletsTab, alerts: alertsTab, pnl: pnlTab })[tab]();
 }
 
 // ---------- watchlist ----------
@@ -188,6 +189,60 @@ function watchTab() {
   draw();
   const load = () => C.api('/api/prices?mints=' + mints.slice(0, 60).join(',')).then(d => $('#pfBody') && draw(d.prices)).catch(() => {});
   load(); const iv = setInterval(load, 30000); onLeave(() => clearInterval(iv));
+}
+
+// ---------- alerts (web push + Telegram) ----------
+function alertsTab() {
+  const { $, esc, LS } = C; const body = $('#pfBody');
+  const sw = (k, on, label, sub) => `<label class="al-sw"><input type="checkbox" data-pref="${k}" ${on ? 'checked' : ''}><span class="tg"></span><span class="lb"><b>${label}</b><small class="mut">${sub}</small></span></label>`;
+  const draw = (st, cfg, err) => {
+    if (!$('#pfBody')) return;
+    const p = AL.prefs(); const tg = st?.telegram || cfg?.telegram || {};
+    const pushOn = !!st?.push; const ios = AL.isIOS(), standalone = AL.isStandalone(), supported = AL.pushSupported();
+    const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+    const nT = LS.get('alerts', []).length, nW = Object.keys(C.watch).length, nWal = LS.get('wallets', []).length;
+    body.innerHTML = `
+    <div class="card al-card">
+      <h3>Where should alerts go?</h3>
+      <p class="mut al-intro">Get pinged even when this site is closed. Pick one or both — nothing needs a wallet or an account here.</p>
+      <div class="al-ch">
+        <div class="al-ico">📲</div>
+        <div class="al-txt"><b>Push notifications</b><small class="mut">${pushOn ? '<span class="ok">● On</span> for this device' : !supported && ios && !standalone ? 'iPhone/iPad: install the app first' : !supported ? 'Not supported in this browser' : perm === 'denied' ? '<span class="bad">Blocked</span> in browser settings' : 'Off'}</small></div>
+        ${pushOn ? '<button class="btn" id="pushOff">Turn off</button>' : `<button class="btn pri" id="pushOn" ${!supported ? 'disabled' : ''}>Turn on</button>`}
+      </div>
+      ${ios && !standalone ? `<div class="al-ios"><b>📱 On iPhone or iPad</b><ol><li>Tap the <b>Share</b> button <span aria-hidden="true">⬆︎</span> in Safari</li><li>Choose <b>Add to Home Screen</b></li><li>Open <b>On the Scope</b> from your Home Screen, come back here and tap <b>Turn on</b></li></ol><small class="mut">Apple only allows web push for installed apps (iOS 16.4+).</small></div>` : ''}
+      <div class="al-ch">
+        <div class="al-ico">✈️</div>
+        <div class="al-txt"><b>Telegram</b><small class="mut">${!tg.enabled ? 'Not set up on this server yet' : tg.linked ? '<span class="ok">● Linked</span> — alerts arrive in your chat' : tg.username ? `Open @${esc(tg.username)} and press Start` : 'Bot is starting…'}</small></div>
+        ${!tg.enabled ? '<button class="btn" disabled>Soon</button>' : tg.linked ? '<button class="btn" id="tgOff">Unlink</button>' : tg.username && st?.telegram?.code ? `<a class="btn pri" id="tgLink" href="https://t.me/${encodeURIComponent(tg.username)}?start=${encodeURIComponent(st.telegram.code)}" target="_blank" rel="noopener">Link Telegram</a>` : '<button class="btn" disabled>Link</button>'}
+      </div>
+      ${tg.enabled && !tg.linked && st?.telegram?.code ? `<small class="dim al-code">Or send <code>/start ${esc(st.telegram.code)}</code> to @${esc(tg.username || 'the bot')}. The page updates once linked.</small>` : ''}
+      ${err ? `<div class="al-err">${esc(err)}</div>` : ''}
+    </div>
+    <div class="card al-card">
+      <h3>What should trigger an alert?</h3>
+      ${sw('targets', p.targets, 'Price targets', `${nT} target${nT === 1 ? '' : 's'} set · add them on any token page`)}
+      <div class="al-row">${sw('moves', p.moves, 'Big watchlist moves', `${nW} token${nW === 1 ? '' : 's'} on your watchlist`)}
+        <select id="movePct" aria-label="Move size">${[5, 10, 20, 30, 50].map(v => `<option value="${v}" ${+p.movePct === v ? 'selected' : ''}>±${v}%</option>`).join('')}</select></div>
+      ${sw('wallets', p.wallets, 'Tracked wallet buys & sells', `${nWal} wallet${nWal === 1 ? '' : 's'} · add them in the Wallets tab`)}
+      ${sw('vv', p.vv, 'Valid Vamp gained / lost', 'When a watchlist vamp flips its OG 5x — or falls back')}
+      ${sw('og', p.og, 'New OG migrations', 'Every fresh “first of its name” graduation (can be busy)')}
+      <div class="al-foot"><button class="btn" id="alTest" ${pushOn || tg.linked ? '' : 'disabled'}>Send a test alert</button><small class="dim">Checked about every minute · max 40 alerts/hour · not financial advice</small></div>
+    </div>`;
+    body.querySelectorAll('[data-pref]').forEach(i => i.onchange = () => AL.setPrefs({ [i.dataset.pref]: i.checked }));
+    $('#movePct').onchange = e => AL.setPrefs({ movePct: +e.target.value });
+    const busy = (b, f) => async () => { b.disabled = true; b.textContent = '…'; try { const r = await f(); draw(r || AL.state(), cfg); } catch (e) { draw(AL.state(), cfg, e.message); } };
+    $('#pushOn') && ($('#pushOn').onclick = busy($('#pushOn'), () => AL.enablePush().then(r => { C.toast('📲 Push alerts on'); return r; })));
+    $('#pushOff') && ($('#pushOff').onclick = busy($('#pushOff'), () => AL.disablePush()));
+    $('#tgOff') && ($('#tgOff').onclick = busy($('#tgOff'), () => AL.unlinkTelegram()));
+    $('#alTest') && ($('#alTest').onclick = busy($('#alTest'), async () => { await AL.sendTest(); C.toast('🎯 Test alert sent'); return AL.state(); }));
+  };
+  body.innerHTML = '<div class="card al-card"><div class="skel" style="width:60%;height:18px"></div><div class="skel" style="width:90%;margin-top:12px"></div><div class="skel" style="width:80%;margin-top:8px"></div></div>';
+  let cfg = null;
+  Promise.all([AL.config(), AL.syncNow()]).then(([c, st]) => { cfg = c; draw(st, c); }).catch(e => draw(null, cfg, 'Couldn’t reach the alerts server: ' + e.message));
+  // poll while waiting for the Telegram link to land
+  const iv = setInterval(() => { const st = AL.state(); if (st?.telegram?.enabled && !st.telegram.linked && !document.hidden) AL.syncNow().then(s => s.telegram?.linked && draw(s, cfg)).catch(() => {}); }, 6000);
+  onLeave(() => clearInterval(iv));
 }
 
 // ---------- tracked wallets ----------
