@@ -39,7 +39,7 @@ export async function syncNow(extra = {}) {
   listeners.forEach(f => { try { f(r); } catch {} });
   return r;
 }
-export function scheduleSync(ms = 1500) { if (!LS || !(LS.get('pushOn', false) || LS.get('tgLink', null) || LS.get('sid', null))) return; clearTimeout(timer); timer = setTimeout(() => syncNow().catch(() => {}), ms); }
+export function scheduleSync(ms = 1500) { if (!LS || !(LS.get('pushOn', false) || LS.get('tgLink', null) || LS.get('sid', null) || LS.get('wallets', []).length)) return; clearTimeout(timer); timer = setTimeout(() => syncNow().catch(() => {}), ms); }
 
 async function subscribe() {
   const c = await config(); const reg = await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready;
@@ -65,6 +65,6 @@ export function initAlerts(opts) {
   ({ LS, getState, onFired } = opts);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   // only talk to the server when this browser has opted into remote alerts at some point
-  if (LS.get('pushOn', false) || LS.get('tgLink', null) || LS.get('sid', null)) scheduleSync(2500);
+  if (LS.get('pushOn', false) || LS.get('tgLink', null) || LS.get('sid', null) || LS.get('wallets', []).length) scheduleSync(2500); // wallets: so the server can tag their trades
   setInterval(() => { if (remoteActive()) syncNow().catch(() => {}); }, 5 * 60e3); // pick up fired targets
 }

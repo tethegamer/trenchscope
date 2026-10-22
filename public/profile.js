@@ -257,6 +257,7 @@ function walletsTab() {
     <button class="btn pri">+ Track wallet</button>
     <div id="wErr" class="dn pf-err"></div>
   </form>
+  <p class="dim" style="font-size:11.5px;margin:6px 2px 10px">🧠 Tokens your wallets buy get a <b>👛 You</b> tag in the screener, next to <b>🧠 Smart money</b> (20 public KOL wallets). Only the public addresses are sent to our server so it can watch them; nothing to sign, and your labels stay on this device.</p>
   <div class="pf-list" id="wList">${wallets.length ? wallets.map(w => { const a = act[w.addr] || {};
     return `<div class="wrow" data-a="${esc(w.addr)}"><div class="wtop">
       <div class="wav" style="--h:${hue(w.addr)}">${esc((w.label || w.addr).slice(0, 2).toUpperCase())}</div>

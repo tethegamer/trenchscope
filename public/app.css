@@ -301,3 +301,9 @@ tr.promoted{background:linear-gradient(90deg,rgba(255,209,102,.06),transparent 4
 .al-row{display:flex;align-items:center;gap:8px}.al-row select{background:var(--bg2);border:1px solid var(--line2);border-radius:9px;color:var(--tx);padding:7px 8px;font:13px Inter;flex:none}
 .al-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line)}.al-foot small{font-size:11px}
 .pf-tabs{overflow-x:auto;scrollbar-width:none}
+/* smart money */
+.chip.smart{background:rgba(168,121,255,.14);color:#c9a8ff;border-color:rgba(168,121,255,.35)}.chip.smart.mine{background:rgba(64,160,255,.13);color:#8cc4ff;border-color:rgba(64,160,255,.35)}
+.smstrip{margin:10px 0 0}.smstrip:empty{display:none}.smcard{padding:10px 12px}.smcard summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;flex-wrap:wrap}.smcard summary::-webkit-details-marker{display:none}
+.smcard .chip.smart{font-size:12.5px;padding:4px 9px}.sm-ago{font-size:12px}.sm-more{margin-left:auto;font-size:12px;color:var(--b)}.smcard[open] .sm-more{display:none}
+.sm-list{display:flex;flex-direction:column;margin-top:8px}.sm-ev{display:grid;grid-template-columns:44px 1fr auto 46px;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:13px;color:var(--tx)}.sm-ev .dim{text-align:right;font-size:12px}
+.sm-note{font-size:11px;margin:8px 0 0}.sm-note code{font-size:10.5px}.smnone{font-size:12px;padding:4px 2px}

@@ -57,6 +57,15 @@ One 0–100 number on every token page (full breakdown) and as a compact chip in
 Tag the bot under a post with a contract address and it replies with the Scope Score + token link. Off until
 `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` are set. Setup and costs: [docs/x-bot.md](docs/x-bot.md).
 
+## 🧠 Smart money tags (`data/smart-wallets.js`)
+
+- A short curated list of **public KOL wallets** (20 today). Every address has a comment citing where it was publicly attributed (kolscan.io account pages, some cross-checked against a public Hugging Face dataset). Only add addresses you can verify that way. Set `SMART_MONEY=0` to turn the list off.
+- `lib/wallettracker.js` polls those wallets (plus every wallet a visitor tracks in Profile → Wallets) through the Solana RPC and parses swaps. KOL wallets that appear in a token's live trade feed also count.
+- Screener rows and cards get a **🧠 N** chip (N = KOLs who bought in the last 24h) and a **👛 You** chip when one of your own tracked wallets bought. The **🧠 Smart money** toggle filters to those tokens. Token pages show a "Smart money bought" strip with each buy and sell (wallet name, SOL amount, time, Solscan link), and KOL wallets are named in Recent trades.
+- API: `GET /api/smart?w=addr1,addr2` returns a per-token summary, and `GET /api/smart/:mint?w=…` returns the events for one token. The server only returns names from the public list; it never shows anyone else's tracked wallets.
+- Tuning: `WALLET_POLL_PER_TICK` (default 8 wallets every 20s). For faster coverage, set `SCORE_RPC` to a private RPC such as Helius or QuickNode.
+- Limits: history lives in memory (24h window), so it starts again after each restart or deploy and fills back in a few minutes. Busy KOL wallets get a lot of spam or failed transactions, so some trades can be missed. This is a hint, not a signal to copy.
+
 ## 🔔 Alerts (`lib/alerts.js`, `lib/wallettracker.js`, `public/alerts-client.js`, `public/sw.js`)
 Profile → **Alerts** sends pings even when the site is closed, by **web push** and/or **Telegram**:
 price targets, watchlist moves (±5–50%), tracked-wallet buys/sells, Valid Vamp gained/lost, and new OG migrations.

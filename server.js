@@ -258,9 +258,9 @@ async function rpc(method, params) {
 // ---------- Scope Score ----------
 // Fast public RPC for the launch scan (PublicNode handles many getTransaction calls/sec); falls back to SOLANA_RPC.
 const FAST_RPC = process.env.SCORE_RPC || 'https://solana-rpc.publicnode.com';
-async function solRpc(method, params) {
+async function solRpc(method, params, prio = PRIO.normal) {
   try {
-    const d = await getJSON(FAST_RPC, { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), timeout: 12000, prio: PRIO.normal });
+    const d = await getJSON(FAST_RPC, { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), timeout: 12000, prio });
     if (d.error) throw new Error(d.error.message);
     return d.result;
   } catch (e) { return rpc(method, params); }
@@ -338,7 +338,8 @@ xbot.start();
 // ---------- wallet tracker + alerts (web push / Telegram) ----------
 const { createWalletTracker } = require('./lib/wallettracker');
 const { createAlerts } = require('./lib/alerts');
-const tracker = createWalletTracker({ rpc: (m, p) => solRpc(m, p), perTick: +process.env.WALLET_POLL_PER_TICK || 8 });
+const tracker = createWalletTracker({ rpc: (m, p) => solRpc(m, p, PRIO.low), // background: user-facing calls go first
+  perTick: +process.env.WALLET_POLL_PER_TICK || 8 });
 async function pricesFor(mints) {
   const ds = await dexTokens(mints); const out = new Map();
   for (const [m, p] of ds) { const d = fromDex(p); out.set(m, { priceUsd: d.priceUsd, symbol: d.symbol, mcap: d.mcap }); }
@@ -346,6 +347,27 @@ async function pricesFor(mints) {
 }
 const alerts = createAlerts({ dataDir: path.join(__dirname, 'data'), getPrices: pricesFor, ogPeek: m => og.peek(m), ogResults: () => og.db.results, tracker, baseUrl: publicBase });
 alerts.start(); tracker.start();
+// ---------- smart money: curated public KOL wallets (data/smart-wallets.js) + each visitor's own tracked wallets ----------
+const SMART = process.env.SMART_MONEY === '0' ? [] : require('./data/smart-wallets');
+const SMART_BY = new Map(SMART.map(w => [w.addr, w]));
+tracker.setSource('smart', SMART, { backfill: true });
+const SM_WINDOW = 24 * 3600e3;
+function smartFor(mint, mine = new Set()) {
+  const ev = tracker.eventsFor(mint).filter(e => Date.now() - e.at < SM_WINDOW);
+  const smart = [], own = [];
+  for (const e of ev) {
+    const k = SMART_BY.get(e.wallet);
+    const row = { wallet: e.wallet, side: e.side, at: e.at, sol: e.sol, usd: e.usdStable, sig: e.sig };
+    if (k) smart.push({ ...row, label: k.label, x: k.x });
+    if (mine.has(e.wallet)) own.push(row);
+  }
+  if (!smart.length && !own.length) return null;
+  const buyers = new Set(smart.filter(e => e.side === 'buy').map(e => e.label));
+  const sellers = new Set(smart.filter(e => e.side === 'sell').map(e => e.label));
+  return { buyers: [...buyers], sellers: [...sellers], mine: own.length ? { buys: own.filter(e => e.side === 'buy').length, sells: own.filter(e => e.side === 'sell').length, wallets: [...new Set(own.map(e => e.wallet))] } : null, last: Math.max(...ev.map(e => e.at)), events: [...smart, ...own.filter(o => !smart.some(s => s.sig === o.sig))].slice(0, 30) };
+}
+const walletsParam = q => new Set(String(q || '').split(',').filter(isMint).slice(0, 20));
+
 const chip = s => s && { t: s.total, c: s.coin?.score ?? null, cl: s.coin?.label || null, n: s.narrative.score, nl: s.narrative.label, g: s.grade, r: s.reason };
 function peekScore(chain, addr) { return chip(store.get(scoreKey(chain, addr))?.value); }
 // background: score list tokens once their safety scan is cached (quick mode = no launch scan)
@@ -583,6 +605,8 @@ app.get('/api/trades/:pool', async (req, res) => {
       return { tx: a.tx_hash, wallet: a.tx_from_address, kind: a.kind, at: a.block_timestamp, usd: num(a.volume_in_usd),
         tokenAmount: num(a.kind === 'buy' ? a.to_token_amount : a.from_token_amount), price: num(a.kind === 'buy' ? a.price_to_in_usd : a.price_from_in_usd) };
     });
+    // a public KOL wallet showing up in this pool's trade feed counts as a smart-money trade too
+    if (net === 'solana' && isMint(req.query.mint)) for (const r of rows) { const k = SMART_BY.get(r.wallet); if (k && (r.kind === 'buy' || r.kind === 'sell')) tracker.record({ wallet: r.wallet, mint: req.query.mint, side: r.kind, amount: r.tokenAmount, sol: null, usdStable: r.usd, sig: r.tx, at: Date.parse(r.at) || Date.now(), labels: [{ label: k.label, source: 'smart' }], live: false }); }
     ok(res, { rows }, 15);
   } catch (e) { fail(res, e); }
 });
@@ -593,6 +617,15 @@ app.get('/api/prices', async (req, res) => {
     for (const [m, p] of ds) { const d = fromDex(p); out[m] = { priceUsd: d.priceUsd, change: d.change, symbol: d.symbol, icon: d.icon, mcap: d.mcap, liquidity: d.liquidity, pair: d.pair }; }
     ok(res, { prices: out }, 10);
   } catch (e) { fail(res, e); }
+});
+app.get('/api/smart', (req, res) => {
+  const mine = walletsParam(req.query.w); const tokens = {};
+  for (const m of tracker.mints()) { const s = smartFor(m, mine); if (s && (s.buyers.length || s.mine)) { delete s.events; tokens[m] = s; } }
+  res.set('Cache-Control', 'no-store'); res.json({ tokens, tracked: SMART.length, windowHours: SM_WINDOW / 3600e3, status: { polls: tracker.status.polls, events: tracker.status.events } });
+});
+app.get('/api/smart/:mint', (req, res) => {
+  if (!isMint(req.params.mint)) return fail(res, new Error('bad mint'), 400);
+  res.set('Cache-Control', 'no-store'); res.json({ ...(smartFor(req.params.mint, walletsParam(req.query.w)) || { buyers: [], sellers: [], mine: null, events: [] }), tracked: SMART.length, windowHours: SM_WINDOW / 3600e3, known: SMART });
 });
 // ---------- alerts ----------
 app.get('/api/alerts/config', (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ vapidPublicKey: alerts.vapidPublicKey, telegram: { enabled: alerts.status.telegram.enabled, username: alerts.status.telegram.username }, push: true }); });

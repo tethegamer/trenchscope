@@ -186,10 +186,27 @@ const TABS = [
   { id: 'pumpfun', label: '<span class="dot"></span> Pump.fun live', desc: 'Coins currently live-streaming on pump.fun (bonding curve & migrated).' },
   { id: 'watch', label: '★ Watchlist', desc: 'Your starred tokens — saved locally in this browser.' },
 ];
-const DEF = { chain: 'solana', tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, ogOnly: false, vvOnly: false, sort: null, dir: -1 };
+const DEF = { chain: 'solana', tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, ogOnly: false, vvOnly: false, smartOnly: false, sort: null, dir: -1 };
 let st = { ...DEF, ...LS.get('filters', {}) };
 const saveSt = () => LS.set('filters', st);
-let rows = [], safetyMap = {}, ogMap = {}, scoreMap = {}, lastUpdated = 0;
+let rows = [], safetyMap = {}, ogMap = {}, scoreMap = {}, smMap = {}, lastUpdated = 0;
+// ---------- smart money ----------
+const myWallets = () => LS.get('wallets', []);
+const wq = () => { const w = myWallets().map(x => x.addr).slice(0, 20); return w.length ? 'w=' + w.join(',') : ''; };
+let smAt = 0;
+async function loadSmart(force) {
+  if (st.chain !== 'solana' && st.chain !== 'all') return;
+  if (!force && Date.now() - smAt < 25000) return; smAt = Date.now();
+  try { const d = await api('/api/smart?' + wq()); smMap = d.tokens || {}; draw(); } catch {}
+}
+const SM_ICO = '🧠';
+function smChip(sm, big) {
+  if (!sm) return '';
+  const own = sm.mine && sm.mine.buys ? `<span class="chip smart mine" title="Your tracked wallet bought in the last 24h">👛 ${big ? 'Your wallet bought' : 'You'}</span>` : '';
+  if (!sm.buyers?.length) return own;
+  const names = sm.buyers.slice(0, 4).join(', ') + (sm.buyers.length > 4 ? ` +${sm.buyers.length - 4}` : '');
+  return `<span class="chip smart" title="Smart money bought (24h): ${esc(names)}">${SM_ICO} ${big ? 'Smart money bought' : sm.buyers.length}${big ? ` · ${esc(names)}` : ''}</span>` + own;
+}
 let CHAINS = [{ id: 'solana', name: 'Solana', color: '#14f195' }];
 const chainOf = id => id === 'all' ? { id: 'all', name: 'All chains', color: '#9aa4b8' } : (CHAINS.find(c => c.id === id) || { id, name: id, color: '#9aa4b8' });
 const chainDot = (id, big) => { const c = chainOf(id); return `<span class="cdot${big ? ' big' : ''}" style="--c:${c.color}" title="${esc(c.name)}">${esc(c.name.replace(/[^A-Za-z]/g, '').slice(0, 2))}</span>`; };
@@ -221,6 +238,7 @@ function filtered() {
   if (st.noBundle) r = r.filter(x => !(x.safety && x.safety.bundled));
   if (st.ogOnly) r = r.filter(x => x.og && x.og.status === 'og');
   if (st.vvOnly) r = r.filter(x => x.og && x.og.vv);
+  if (st.smartOnly) r = r.filter(x => smMap[x.mint]);
   if (st.sort) {
     const get = { price: x => x.priceUsd, age: x => -(x.createdAt || 0), m5: x => x.change?.m5, h1: x => x.change?.h1, h6: x => x.change?.h6, h24: x => x.change?.h24, vol: x => x.volume?.h24, liq: x => x.liquidity, mcap: x => x.mcap || x.fdv, txns: x => (x.txns?.h24?.buys || 0) + (x.txns?.h24?.sells || 0), safety: x => x.safety?.score ?? -1 }[st.sort];
     if (get) r.sort((a, b) => ((get(a) ?? -Infinity) - (get(b) ?? -Infinity)) * st.dir);
@@ -240,7 +258,7 @@ function listPage() {
   <div class="stats" id="stats"></div></section>
   <nav class="tabs">${TABS.filter(t => st.chain === 'solana' || ['trending', 'new', 'gainers'].includes(t.id)).map(t => `<button class="tab ${t.id === st.tab ? 'on' : ''}" data-tab="${t.id}">${t.label}${t.id === 'watch' ? ` <span class="chip">${Object.keys(watch).length}</span>` : ''}</button>`).join('')}</nav>
   <div class="bar"><div class="filters">
-    ${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${tog('vvOnly', 'VV only')}${glossLink}${tog('noBundle', 'Hide bundled')}
+    ${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${tog('vvOnly', 'VV only')}${glossLink}${tog('smartOnly', '🧠 Smart money')}${tog('noBundle', 'Hide bundled')}
     ${sel('liq', 'Liq ≥', [[0, 'Any'], [5000, '$5K'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [500000, '$500K']])}
     ${sel('vol', 'Vol 24h ≥', [[0, 'Any'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [1000000, '$1M']])}
     ${sel('mcapMin', 'MCap ≥', [[0, 'Any'], [10000, '$10K'], [100000, '$100K'], [1000000, '$1M'], [10000000, '$10M']])}
@@ -279,7 +297,7 @@ async function load(first) {
       rows = d.rows; lastUpdated = d.updatedAt;
       for (const r of rows) { if (r.safety) safetyMap[r.mint] = r.safety; if (r.og) ogMap[r.mint] = r.og; if (r.score) scoreMap[r.mint] = r.score; }
     }
-    draw(); pollSafety();
+    draw(); pollSafety(); loadSmart(first);
   } catch (e) {
     if (first) { $('#tb').innerHTML = `<tr><td colspan="14" class="err">Couldn't load data: ${esc(e.message)}. Retrying…</td></tr>`; $('#cards').innerHTML = `<div class="err">Couldn't load data. Retrying…</div>`; }
   }
@@ -306,7 +324,7 @@ function draw() {
   $('#stats').innerHTML = rows.length ? `<div class="stat"><small>Pairs</small><b>${rows.length}</b></div><div class="stat"><small>Scanned</small><b>${scanned.length}</b></div><div class="stat"><small>Safe ≥80</small><b class="up">${safeN}</b></div><div class="stat"><small>Bundled</small><b class="dn">${bund}</b></div>` : '';
   $('#upd').innerHTML = lastUpdated ? `<span class="live"></span> ${r.length} shown · updated ${age(lastUpdated)} ago · auto-refresh 30s` : '';
   if (!r.length) {
-    const msg = st.tab === 'watch' && !Object.keys(watch).length ? 'Your watchlist is empty. Tap ☆ on any token to track it here.' : st.safeOnly && scanned.length < rows.length ? 'No tokens pass the filters yet — safety scans are still running, give it a few seconds.' : 'No tokens match these filters.';
+    const msg = st.smartOnly && !Object.keys(smMap).length ? 'No smart-money buys tracked in the last 24h yet — the tracker checks 20 public KOL wallets + your wallets every minute or so.' : st.tab === 'watch' && !Object.keys(watch).length ? 'Your watchlist is empty. Tap ☆ on any token to track it here.' : st.safeOnly && scanned.length < rows.length ? 'No tokens pass the filters yet — safety scans are still running, give it a few seconds.' : 'No tokens match these filters.';
     tb.innerHTML = `<tr><td colspan="14" class="empty">${msg}</td></tr>`; $('#cards').innerHTML = `<div class="empty">${msg}</div>`; return;
   }
   const isNew = x => x.createdAt && Date.now() - x.createdAt < 86400e3;
@@ -315,7 +333,7 @@ function draw() {
     const L = links(x.mint, x.pair);
     return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class=""${x.promo ? 'promoted' : ''}">
       <td class="l"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}" title="Watchlist">${isWatched(x.mint) ? '★' : '☆'}</button></td>
-      <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''}</span></div></div></td>
+      <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''}</span></div></div></td>
       <td class="l"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span></td>
       <td class="mono">${price(x.priceUsd)}</td><td class="mut">${age(x.createdAt)}</td>
       <td>${tot ? `<div class="txbar"><span>${tot.toLocaleString()}</span><span class="b"><i style="width:${(b / tot * 100).toFixed(0)}%"></i></span></div>` : '<span class="dim">—</span>'}</td>
@@ -324,7 +342,7 @@ function draw() {
       <td><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : L.jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></td></tr>`;
   }).join('');
   $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
-      <div class="tok" style="grid-column:1/3">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)}</span></div></div>
+      <div class="tok" style="grid-column:1/3">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)}</span></div></div>
       <div class="pr"><b class="mono">${price(x.priceUsd)}</b>${pct(x.change?.h24 ?? x.change?.h1)}</div>
       <div class="sf"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></span></div>
       <div class="meta"><span>Liq <b>${usd(x.liquidity)}</b></span><span>Vol <b>${usd(x.volume?.h24)}</b></span><span>MCap <b>${usd(x.mcap || x.fdv)}</b></span><span>1h ${pct(x.change?.h1)}</span></div></div>`).join('');
@@ -361,9 +379,9 @@ document.addEventListener('keydown', e => { if (e.key === '/' && document.active
 document.addEventListener('click', e => { if (!$('#searchForm').contains(e.target)) $('#results').hidden = true; else if (e.target.closest('#results a')) { $('#q').value = ''; } });
 
 // ---------- token page ----------
-let CUR_CHAIN = 'solana';
+let CUR_CHAIN = 'solana', CUR_MINT = '';
 async function tokenPage(mint, chain = 'solana') {
-  CUR_CHAIN = chain; const isSol = chain === 'solana'; const cq = isSol ? '' : '?chain=' + chain;
+  CUR_CHAIN = chain; CUR_MINT = mint; const isSol = chain === 'solana'; const cq = isSol ? '' : '?chain=' + chain;
   app.innerHTML = `<div class="tp-head"><div class="ico"></div><div style="flex:1"><div class="skel" style="width:200px;height:22px"></div><div class="skel" style="width:300px;margin-top:8px"></div></div></div><div class="kpis">${'<div class="kpi"><div class="skel"></div></div>'.repeat(4)}</div><div class="card" style="height:430px"></div>`;
   let d;
   try { d = await api('/api/token/' + encodeURIComponent(mint) + cq); } catch (e) { app.innerHTML = `<div class="err">Couldn't load token: ${esc(e.message)}</div><p style="text-align:center"><a href="/" data-link class="btn">← Back to screener</a></p>`; return; }
@@ -395,6 +413,7 @@ async function tokenPage(mint, chain = 'solana') {
     ${d.pump ? `<a class="btn" href="${L.pump}" target="_blank" rel="noopener">pump.fun ↗</a>` : ''}
     ${isSol ? '' : '<!--'}<a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get Scoped / Boost'}</a>${isSol ? '' : '-->'}
   </div>
+  ${isSol ? '<div class="smstrip" id="smStrip"></div>' : ''}
   <div class="card scorecard" id="scoreCard">${scoreSkel}</div>
   <div class="kpis">
     <div class="kpi"><small>Market cap</small><b>${usd(m.mcap ?? d.pump?.usdMcap)}</b><span class="dim" style="font-size:12px">FDV ${usd(m.fdv)}</span></div>
@@ -449,6 +468,7 @@ async function tokenPage(mint, chain = 'solana') {
     toast(`Alert set: ${esc(d.symbol)} ${$('#adir').value} ${price(p)}`);
   };
   loadScore(mint, chain);
+  if (isSol) { loadSmartToken(mint); const smi = setInterval(() => loadSmartToken(mint), 30000); cleanup.push(() => clearInterval(smi)); }
   if (m.pair) {
     initChart(m.pair, m.priceUsd);
     loadTrades(m.pair, d.symbol); const iv = setInterval(() => loadTrades(m.pair, d.symbol), 20000); cleanup.push(() => clearInterval(iv));
@@ -467,12 +487,29 @@ function ogCard(o, sym, flipped) {
     ${o.olderNonGraduated ? `<dt>Older non-pump tokens</dt><dd class="mut">${o.olderNonGraduated} traded earlier on other DEXes</dd>` : ''}
     <dt>Same-name tokens indexed</dt><dd>${o.size}</dd></dl>${note}`;
 }
+let KNOWN = new Map();
+async function loadSmartToken(mint) {
+  const el = $('#smStrip'); if (!el) return;
+  try {
+    const d = await api('/api/smart/' + mint + '?' + wq());
+    KNOWN = new Map((d.known || []).map(k => [k.addr, k]));
+    const mine = new Map(myWallets().map(w => [w.addr, w.label]));
+    const ev = (d.events || []).slice(0, 8);
+    const who = e => KNOWN.get(e.wallet)?.label || (mine.has(e.wallet) ? (mine.get(e.wallet) || short(e.wallet)) + ' (you)' : short(e.wallet));
+    if (!$('#smStrip')) return;
+    el.innerHTML = d.buyers?.length || d.mine ? `<details class="card smcard"><summary>${smChip(d, true)}<span class="dim sm-ago">${age(Math.min(d.last, Date.now()))} ago</span><span class="sm-more">details</span></summary>
+      <div class="sm-list">${ev.map(e => `<a class="sm-ev" href="https://solscan.io/tx/${esc(e.sig)}" target="_blank" rel="noopener"><b class="${e.side === 'buy' ? 'up' : 'dn'}">${e.side === 'buy' ? 'BUY' : 'SELL'}</b><span>${esc(who(e))}</span><span class="mono">${e.sol ? e.sol.toFixed(2) + ' SOL' : e.usd ? usd(e.usd) : ''}</span><span class="dim">${age(e.at)}</span></a>`).join('')}</div>
+      <p class="dim sm-note">${SM_ICO} Smart money = ${d.tracked} public KOL wallets (sources cited in <code>data/smart-wallets.js</code>) plus the wallets you track. Last ${d.windowHours}h. Following KOLs is not a strategy — they dump on followers too.</p></details>`
+      : `<div class="smnone dim">${SM_ICO} No smart-money trades in the last ${d.windowHours}h · watching ${d.tracked} KOL wallets${mine.size ? ` + your ${mine.size}` : ''}</div>`;
+  } catch { el.innerHTML = ''; }
+}
 async function loadTrades(pool, sym) {
   try {
-    const { rows } = await api('/api/trades/' + encodeURIComponent(pool) + (CUR_CHAIN !== 'solana' ? '?chain=' + CUR_CHAIN : ''));
+    const { rows } = await api('/api/trades/' + encodeURIComponent(pool) + (CUR_CHAIN !== 'solana' ? '?chain=' + CUR_CHAIN : CUR_MINT ? '?mint=' + CUR_MINT : ''));
     const el = $('#trades'); if (!el) return;
     $('#trUpd').textContent = 'live · 20s';
-    el.innerHTML = rows.length ? `<table><thead><tr><th class="l">Time</th><th class="l">Type</th><th>USD</th><th>${esc(sym)}</th><th>Price</th><th class="l">Wallet</th></tr></thead><tbody>${rows.slice(0, 25).map(t => `<tr ${CUR_CHAIN === 'solana' ? `onclick="window.open('https://solscan.io/tx/${esc(t.tx)}','_blank')"` : ''}><td class="l dim">${age(Date.parse(t.at))} ago</td><td class="l ${t.kind === 'buy' ? 'up' : 'dn'}" style="font-weight:700">${t.kind === 'buy' ? 'Buy' : 'Sell'}</td><td class="${t.kind === 'buy' ? 'up' : 'dn'}">${usd(t.usd, 2)}</td><td class="mono">${t.tokenAmount != null ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(t.tokenAmount) : '—'}</td><td class="mono">${price(t.price)}</td><td class="l mono"><a style="color:var(--b)" href="https://solscan.io/account/${esc(t.wallet)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(short(t.wallet))}</a></td></tr>`).join('')}</tbody></table>` : '<div class="mut">No recent trades reported.</div>';
+    if (CUR_CHAIN === 'solana' && KNOWN.size && rows.some(t => KNOWN.has(t.wallet)) && !$('#smStrip .smcard')) loadSmartToken(CUR_MINT);
+    el.innerHTML = rows.length ? `<table><thead><tr><th class="l">Time</th><th class="l">Type</th><th>USD</th><th>${esc(sym)}</th><th>Price</th><th class="l">Wallet</th></tr></thead><tbody>${rows.slice(0, 25).map(t => `<tr ${CUR_CHAIN === 'solana' ? `onclick="window.open('https://solscan.io/tx/${esc(t.tx)}','_blank')"` : ''}><td class="l dim">${age(Date.parse(t.at))} ago</td><td class="l ${t.kind === 'buy' ? 'up' : 'dn'}" style="font-weight:700">${t.kind === 'buy' ? 'Buy' : 'Sell'}</td><td class="${t.kind === 'buy' ? 'up' : 'dn'}">${usd(t.usd, 2)}</td><td class="mono">${t.tokenAmount != null ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(t.tokenAmount) : '—'}</td><td class="mono">${price(t.price)}</td><td class="l mono"><a style="color:var(--b)" href="https://solscan.io/account/${esc(t.wallet)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${KNOWN.has(t.wallet) ? `<span class="chip smart" title="Public KOL wallet">${SM_ICO} ${esc(KNOWN.get(t.wallet).label)}</span>` : esc(short(t.wallet))}</a></td></tr>`).join('')}</tbody></table>` : '<div class="mut">No recent trades reported.</div>';
   } catch (e) { const el = $('#trades'); if (el && !el.querySelector('table')) el.innerHTML = `<div class="mut">Trades unavailable (${esc(e.message)}).</div>`; }
 }
 const candleCache = {};
