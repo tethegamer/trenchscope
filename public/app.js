@@ -385,12 +385,12 @@ function draw() {
       <td>${tot ? `<div class="txbar"><span>${tot.toLocaleString()}</span><span class="b"><i style="width:${(b / tot * 100).toFixed(0)}%"></i></span></div>` : '<span class="dim">—</span>'}</td>
       <td>${usd(x.volume?.h24)}</td><td>${pct(x.change?.m5)}</td><td>${pct(x.change?.h1)}</td><td>${pct(x.change?.h6)}</td><td>${pct(x.change?.h24)}</td>
       <td>${usd(x.liquidity)}</td><td>${usd(x.mcap || x.fdv)}</td>
-      <td><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : L.jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></td></tr>`;
+      <td>${x.chain && x.chain !== 'solana' ? '' : `<a class="buy" href="${L.jup}" target="_blank" rel="noopener" data-stop>Buy</a>`}</td></tr>`;
   }).join('');
   $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c${fresh(x) ? ' slide' : ''}" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
       <div class="tok" style="grid-column:1/3">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)}</span></div></div>
       <div class="pr"><b class="mono">${price(x.priceUsd)}</b>${pct(x.change?.h24 ?? x.change?.h1)}</div>
-      <div class="sf"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></span></div>
+      <div class="sf"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button>${x.chain && x.chain !== 'solana' ? '' : `<a class="buy" href="${links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>Buy</a>`}</span></div>
       <div class="meta"><span>Liq <b>${usd(x.liquidity)}</b></span><span>Vol <b>${usd(x.volume?.h24)}</b></span><span>MCap <b>${usd(x.mcap || x.fdv)}</b></span><span>1h ${pct(x.change?.h1)}</span></div></div>`).join('');
   app.querySelectorAll('[data-m]').forEach(el => el.onclick = e => {
     if (e.target.closest('[data-stop]')) return;
@@ -453,7 +453,6 @@ async function tokenPage(mint, chain = 'solana') {
     ${isSol ? `<a class="btn pri" id="buyBtn" href="${L.jup}" target="_blank" rel="noopener">⚡ Buy</a>
     <a class="btn ss" href="${L.safesign}" target="_blank" rel="noopener">🛡 Deep scan on SafeSign</a>
     <button class="btn" id="wbtn">${isWatched(mint) ? '★ Watching' : '☆ Watchlist'}</button>` : `<span class="chip">${chainDot(chain)} ${esc(chainOf(chain).name)}</span>`}
-    <a class="btn ${isSol ? '' : 'pri'}" href="https://dexscreener.com/${chain}/${m.pair || mint}" target="_blank" rel="noopener">${isSol ? 'DexScreener ↗' : 'Trade on DexScreener ↗'}</a>
     ${isSol ? `<a class="btn" href="${L.solscan}" target="_blank" rel="noopener">Solscan ↗</a>
     <a class="btn" href="${L.rug}" target="_blank" rel="noopener">RugCheck ↗</a>` : ''}
     ${d.pump ? `<a class="btn" href="${L.pump}" target="_blank" rel="noopener">pump.fun ↗</a>` : ''}
