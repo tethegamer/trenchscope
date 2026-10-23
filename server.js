@@ -350,7 +350,7 @@ alerts.start(); tracker.start();
 // ---------- smart money: curated public KOL wallets (data/smart-wallets.js) + each visitor's own tracked wallets ----------
 const SMART = process.env.SMART_MONEY === '0' ? [] : require('./data/smart-wallets');
 const SMART_BY = new Map(SMART.map(w => [w.addr, w]));
-tracker.setSource('smart', SMART, { backfill: true });
+tracker.setSource('smart', SMART, { backfill: +process.env.SMART_BACKFILL || 5 }); // 120+ wallets: a light first look each, then incremental
 const SM_WINDOW = 24 * 3600e3;
 function smartFor(mint, mine = new Set()) {
   const ev = tracker.eventsFor(mint).filter(e => Date.now() - e.at < SM_WINDOW);
@@ -358,14 +358,17 @@ function smartFor(mint, mine = new Set()) {
   for (const e of ev) {
     const k = SMART_BY.get(e.wallet);
     const row = { wallet: e.wallet, side: e.side, at: e.at, sol: e.sol, usd: e.usdStable, sig: e.sig };
-    if (k) smart.push({ ...row, label: k.label, x: k.x });
+    if (k) smart.push({ ...row, label: k.label, x: k.x, cat: k.cat });
     if (mine.has(e.wallet)) own.push(row);
   }
   if (!smart.length && !own.length) return null;
   const buyers = new Set(smart.filter(e => e.side === 'buy').map(e => e.label));
   const sellers = new Set(smart.filter(e => e.side === 'sell').map(e => e.label));
-  return { buyers: [...buyers], sellers: [...sellers], mine: own.length ? { buys: own.filter(e => e.side === 'buy').length, sells: own.filter(e => e.side === 'sell').length, wallets: [...new Set(own.map(e => e.wallet))] } : null, last: Math.max(...ev.map(e => e.at)), events: [...smart, ...own.filter(o => !smart.some(s => s.sig === o.sig))].slice(0, 30) };
+  const callers = new Set(smart.filter(e => e.side === 'buy' && e.cat === 'caller').map(e => e.label));
+  return { buyers: [...buyers], callers: [...callers], sellers: [...sellers], mine: own.length ? { buys: own.filter(e => e.side === 'buy').length, sells: own.filter(e => e.side === 'sell').length, wallets: [...new Set(own.map(e => e.wallet))] } : null, last: Math.max(...ev.map(e => e.at)), events: [...smart, ...own.filter(o => !smart.some(s => s.sig === o.sig))].slice(0, 30) };
 }
+// ---------- Top Callers: leaderboard + recent buys of the curated callers/traders ----------
+const CALLER_STATS = (() => { try { return require('./data/caller-stats.json'); } catch { return { wallets: {} }; } })();
 const walletsParam = q => new Set(String(q || '').split(',').filter(isMint).slice(0, 20));
 
 const chip = s => s && { t: s.total, c: s.coin?.score ?? null, cl: s.coin?.label || null, n: s.narrative.score, nl: s.narrative.label, g: s.grade, r: s.reason };
@@ -426,6 +429,29 @@ async function chainList(kind, chain) {
     return rows;
   });
 }
+app.get('/api/callers', async (req, res) => {
+  try {
+    const d = await cached('callers:v1', 20e3, async () => {
+      const day = Date.now() - 24 * 3600e3;
+      const buys = tracker.recent(400, e => e.side === 'buy' && SMART_BY.has(e.wallet));
+      const per = new Map(); for (const e of buys) { const p = per.get(e.wallet) || { n: 0, n24: 0, last: 0, mints: new Set() }; p.n++; if (e.at >= day) p.n24++; p.last = Math.max(p.last, e.at); p.mints.add(e.mint); per.set(e.wallet, p); }
+      const recent = buys.slice(0, 60);
+      const meta = await dexTokens([...new Set(recent.map(e => e.mint))].slice(0, 60)).catch(() => new Map());
+      const solUsd = SOL_USD;
+      const rows = recent.map(e => {
+        const k = SMART_BY.get(e.wallet), p = meta.get(e.mint), t = p ? fromDex(p) : null;
+        // mcap at entry ~= what they paid per token x (current mcap / current price), i.e. same supply
+        const paidUsd = e.usdStable || (e.sol && solUsd ? e.sol * solUsd : null);
+        const entryPrice = paidUsd && e.amount ? paidUsd / e.amount : null;
+        const entryMcap = entryPrice && t?.priceUsd && t?.mcap ? t.mcap * entryPrice / t.priceUsd : null;
+        return { wallet: e.wallet, label: k.label, x: k.x, cat: k.cat, mint: e.mint, symbol: t?.symbol || null, name: t?.name || null, icon: t?.icon || null, at: e.at, sol: e.sol, usd: paidUsd, entryMcap: entryMcap && entryMcap < 1e12 ? entryMcap : null, mcapNow: t?.mcap ?? null, sig: e.sig };
+      });
+      const board = SMART.map(w => { const p = per.get(w.addr); return { addr: w.addr, label: w.label, x: w.x || null, cat: w.cat || 'trader', pump: w.pump || null, stats: CALLER_STATS.wallets[w.addr] || null, buys24h: p?.n24 || 0, tokens: p ? p.mints.size : 0, lastBuyAt: p?.last || null }; });
+      return { board, recent: rows, tracked: SMART.length, callers: SMART.filter(w => w.cat === 'caller').length, statsFetched: CALLER_STATS.fetched || null, status: { polls: tracker.status.polls, rotationSec: tracker.status.rotationSec, hot: tracker.status.hot }, windowHours: 24 };
+    });
+    ok(res, d, 15);
+  } catch (e) { fail(res, e); }
+});
 // ---------- real-time new pairs (PumpPortal websocket + fast DEX new-pool polling, pushed over SSE) ----------
 const { createLiveFeed } = require('./lib/livefeed');
 let SOL_USD = null;
@@ -758,7 +784,7 @@ app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'no
 app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/javascript').sendFile(path.join(__dirname, 'public', 'sw.js')); });
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
-app.get(/^\/(token\/.*|advertise|profile|order\/.*|c\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get(/^\/(token\/.*|advertise|profile|callers|order\/.*|c\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 if (require.main === module) {
   app.listen(PORT, () => console.log(`On the Scope on http://localhost:${PORT}`));

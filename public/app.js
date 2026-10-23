@@ -169,7 +169,7 @@ function route() {
   window.scrollTo(0, 0);
   const o = location.pathname.match(/^\/order\/([a-f0-9]{20})$/);
   $('#profileBtn')?.classList.toggle('on', location.pathname === '/profile');
-  if (mc) tokenPage(decodeURIComponent(mc[2]), mc[1]); else if (m) tokenPage(m[1]); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else if (location.pathname === '/profile') openProfile(); else listPage();
+  if (mc) tokenPage(decodeURIComponent(mc[2]), mc[1]); else if (m) tokenPage(m[1]); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else if (location.pathname === '/callers') callersPage(); else if (location.pathname === '/profile') openProfile(); else listPage();
 }
 
 // ---------- profile (lazy-loaded module) ----------
@@ -187,6 +187,7 @@ const TABS = [
   { id: 'trending', label: '🔥 Trending', desc: 'Hottest Solana pairs right now (GeckoTerminal trending + DexScreener boosts), enriched with live DexScreener stats.' },
   { id: 'new', label: '<span class="dot"></span> ✨ New pairs', desc: 'Every new coin the moment it launches: pump.fun &amp; LetsBonk launches stream in live, plus fresh DEX pools, newest first.' },
   { id: 'gainers', label: '🚀 Gainers', desc: 'Biggest 24h movers with at least $5K liquidity across tracked pairs.' },
+  { id: 'callers', label: '📣 Top Callers', desc: '' },
   { id: 'pumpfun', label: '<span class="dot"></span> Pump.fun live', desc: 'Coins currently live-streaming on pump.fun (bonding curve & migrated).' },
   { id: 'watch', label: '★ Watchlist', desc: 'Your starred tokens — saved locally in this browser.' },
 ];
@@ -208,8 +209,9 @@ function smChip(sm, big) {
   if (!sm) return '';
   const own = sm.mine && sm.mine.buys ? `<span class="chip smart mine" title="Your tracked wallet bought in the last 24h">👛 ${big ? 'Your wallet bought' : 'You'}</span>` : '';
   if (!sm.buyers?.length) return own;
+  const cl = sm.callers?.length ? `<span class="chip caller" title="Pump.fun callers bought (24h): ${esc(sm.callers.join(', '))}">📣 ${big ? 'Callers bought · ' + esc(sm.callers.slice(0, 3).join(', ')) : sm.callers.length}</span>` : '';
   const names = sm.buyers.slice(0, 4).join(', ') + (sm.buyers.length > 4 ? ` +${sm.buyers.length - 4}` : '');
-  return `<span class="chip smart" title="Smart money bought (24h): ${esc(names)}">${SM_ICO} ${big ? 'Smart money bought' : sm.buyers.length}${big ? ` · ${esc(names)}` : ''}</span>` + own;
+  return `<span class="chip smart" title="Smart money bought (24h): ${esc(names)}">${SM_ICO} ${big ? 'Smart money bought' : sm.buyers.length}${big ? ` · ${esc(names)}` : ''}</span>` + cl + own;
 }
 let CHAINS = [{ id: 'solana', name: 'Solana', color: '#14f195' }];
 const chainOf = id => id === 'all' ? { id: 'all', name: 'All chains', color: '#9aa4b8' } : (CHAINS.find(c => c.id === id) || { id, name: id, color: '#9aa4b8' });
@@ -254,7 +256,7 @@ const tog = (key, label) => `<button class="toggle ${st[key] ? 'on' : ''}" data-
 
 function listPage() {
   document.title = 'On the Scope — Solana screener with safety on every row';
-  if (st.chain !== 'solana' && !['trending', 'new', 'gainers'].includes(st.tab)) st.tab = 'trending';
+  if (st.tab === 'callers' || (st.chain !== 'solana' && !['trending', 'new', 'gainers'].includes(st.tab))) st.tab = 'trending';
   const tab = TABS.find(t => t.id === st.tab) || TABS[0];
   renderChainBtn();
   app.innerHTML = `
@@ -272,7 +274,7 @@ function listPage() {
   </div><div class="upd" id="upd"></div></div>
   <div class="tablewrap desk"><div class="scroll"><table><thead><tr>${head()}</tr></thead><tbody id="tb">${skeleton()}</tbody></table></div></div>
   <div class="cards" id="cards">${'<div class="c"><div class="skel" style="grid-column:1/-1;height:40px"></div></div>'.repeat(6)}</div>`;
-  app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { st.tab = b.dataset.tab; st.sort = null; saveSt(); listPage(); });
+  app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { if (b.dataset.tab === 'callers') return go('/callers'); st.tab = b.dataset.tab; st.sort = null; saveSt(); listPage(); });
   app.querySelectorAll('[data-k]').forEach(s => s.onchange = () => { st[s.dataset.k] = +s.value; saveSt(); listPage(); });
   app.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { st[b.dataset.t] = !st[b.dataset.t]; saveSt(); listPage(); });
   const rs = $('#reset'); if (rs) rs.onclick = () => { st = { ...DEF, tab: st.tab }; saveSt(); listPage(); };
@@ -562,6 +564,52 @@ function setupBuy(mint, sym) {
   });
 }
 let KNOWN = new Map();
+// ---------- Top Callers page ----------
+const CALLER_EXPLAIN = `<b>What's a caller?</b> A caller is someone with a following who posts coins publicly ("calls" them), usually on pump.fun, X or Telegram, so their followers pile in after them. Most callers buy <i>before</i> they post. Watching their wallets shows you what they're actually buying, often before the call goes out. <b>Traders</b> are wallets tracked for their own on-chain PnL. Neither is advice: callers often sell into the buying their call creates.`;
+let CSTATE = { cat: 'all', sort: 'auto' };
+function callersPage() {
+  document.title = 'Top Callers — On the Scope';
+  app.innerHTML = `<section class="hero"><div><h1>📣 Top Callers <span class="mut" style="font-weight:500">on pump.fun &amp; Solana</span></h1><p>Live buys from public pump.fun callers and top KOL traders, with their track records.</p></div><div class="stats" id="cstats"></div></section>
+  <nav class="tabs">${TABS.map(t => `<button class="tab ${t.id === 'callers' ? 'on' : ''}" data-tab="${t.id}">${t.label}</button>`).join('')}</nav>
+  <div class="card cexplain">${CALLER_EXPLAIN}</div>
+  <div class="bar"><div class="filters">${[['all', 'All'], ['caller', '📣 Callers'], ['trader', '🧠 Traders']].map(([k, l]) => `<button class="toggle ${CSTATE.cat === k ? 'on' : ''}" data-cat="${k}">${l}</button>`).join('')}
+    <label class="f">Rank by <select id="csort">${[['auto', 'Best record'], ['active', 'Most active (24h)'], ['pnl', 'kolscan 30d PnL'], ['hit', 'pump.fun 2x hit rate']].map(([k, l]) => `<option value="${k}" ${CSTATE.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div><div class="upd" id="cupd"></div></div>
+  <div class="cgrid"><div class="card"><h3>Leaderboard</h3><div id="cboard" class="scroll">${skeletonBox()}</div></div><div class="card"><h3>Recent buys <span class="dim" style="font-weight:500">· live from their wallets</span></h3><div id="crecent">${skeletonBox()}</div></div></div>`;
+  app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { if (b.dataset.tab === 'callers') return; st.tab = b.dataset.tab; saveSt(); go('/'); });
+  app.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { CSTATE.cat = b.dataset.cat; callersPage(); });
+  $('#csort').onchange = e => { CSTATE.sort = e.target.value; drawCallers(); };
+  loadCallers(); const iv = setInterval(loadCallers, 30000); cleanup.push(() => clearInterval(iv));
+}
+const skeletonBox = () => '<div class="skel" style="height:220px"></div>';
+let CDATA = null;
+async function loadCallers() { try { CDATA = await api('/api/callers'); drawCallers(); } catch (e) { const b = $('#cboard'); if (b) b.innerHTML = `<div class="err">${esc(e.message)}</div>`; } }
+const sol = v => v == null ? '—' : (v >= 0 ? '+' : '') + Intl.NumberFormat('en', { maximumFractionDigits: v >= 100 || v <= -100 ? 0 : 1 }).format(v) + ' SOL';
+function drawCallers() {
+  if (!CDATA || !$('#cboard')) return;
+  const d = CDATA, inCat = w => CSTATE.cat === 'all' || w.cat === CSTATE.cat;
+  const pnl = w => w.stats?.kolscan?.d30?.profit ?? w.stats?.kolscan?.d7?.profit ?? w.stats?.kolscan?.d1?.profit ?? null;
+  const hit = w => w.stats?.pump?.hit2x ?? null;
+  const key = { active: w => w.buys24h * 1e6 + (w.lastBuyAt || 0) / 1e7, pnl: w => pnl(w) ?? -1e9, hit: w => hit(w) ?? -1,
+    auto: w => (hit(w) != null ? 1e6 + hit(w) * 1e3 + (w.stats.pump.calls || 0) : 0) + (pnl(w) ?? -1e5) / 1e3 + w.buys24h }[CSTATE.sort];
+  const board = d.board.filter(inCat).sort((a, b) => key(b) - key(a));
+  $('#cstats').innerHTML = `<div class="stat"><small>Tracked</small><b>${d.tracked}</b></div><div class="stat"><small>Callers</small><b>${d.callers}</b></div><div class="stat"><small>Buys seen</small><b class="up">${d.recent.length}</b></div><div class="stat"><small>Full scan</small><b>${d.status.rotationSec ? '~' + Math.round(d.status.rotationSec / 60) + 'm' : '—'}</b></div>`;
+  $('#cupd').innerHTML = `<span class="live"></span> wallets polled in rotation · hot wallets more often · auto-refresh 30s`;
+  $('#cboard').innerHTML = `<table class="ctable"><thead><tr><th>#</th><th class="l">Who</th><th>Type</th><th title="pump.fun: share of their last ~30 calls that went 2x (snapshot ${esc(d.statsFetched || '')})">2x hit</th><th title="kolscan.io realized PnL, last 30 days (snapshot ${esc(d.statsFetched || '')})">30d PnL</th><th>24h buys</th><th>Last</th></tr></thead><tbody>${board.map((w, i) => {
+    const k = w.stats?.kolscan?.d30 || w.stats?.kolscan?.d7 || w.stats?.kolscan?.d1, p = w.stats?.pump;
+    return `<tr><td class="dim">${i + 1}</td><td class="l"><div class="who"><b>${esc(w.label)}</b><div class="wl">${w.x ? `<a href="https://x.com/${esc(w.x)}" target="_blank" rel="noopener">@${esc(w.x)}</a>` : ''}<a class="dim mono" href="https://solscan.io/account/${esc(w.addr)}" target="_blank" rel="noopener">${esc(short(w.addr))}</a>${w.pump ? `<a class="dim" href="https://pump.fun/profile/${esc(w.pump)}" target="_blank" rel="noopener">pump.fun ↗</a>` : `<a class="dim" href="https://kolscan.io/account/${esc(w.addr)}" target="_blank" rel="noopener">kolscan ↗</a>`}</div></div></td>
+      <td><span class="chip ${w.cat === 'caller' ? 'caller' : 'smart'}" title="${w.cat === 'caller' ? 'Caller' : 'Trader'}">${w.cat === 'caller' ? '📣' : '🧠'}</span></td>
+      <td class="${p?.hit2x >= 60 ? 'up' : ''}" title="${p?.calls ? p.calls + ' calls checked' : ''}">${p?.hit2x != null ? p.hit2x + '%' : '—'}</td>
+      <td class="${k ? (k.profit >= 0 ? 'up' : 'dn') : ''}" title="${k ? k.wins + ' wins / ' + k.losses + ' losses' : ''}">${k ? sol(k.profit) : '—'}</td>
+      <td>${w.buys24h || '<span class="dim">0</span>'}</td><td class="dim">${w.lastBuyAt ? age(w.lastBuyAt) + ' ago' : '—'}</td></tr>`; }).join('')}</tbody></table>`;
+  const rec = d.recent.filter(inCat);
+  $('#crecent').innerHTML = rec.length ? `<div class="cfeed">${rec.slice(0, 40).map(e => `<a class="cbuy" href="/token/${esc(e.mint)}" data-go>
+      ${e.icon ? `<img src="${esc(e.icon)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : '<span class="ph"></span>'}
+      <div><div><span class="chip ${e.cat === 'caller' ? 'caller' : 'smart'}">${e.cat === 'caller' ? '📣' : SM_ICO} ${esc(e.label)}</span> bought <b>${esc(e.symbol || short(e.mint))}</b></div>
+      <div class="dim">${age(e.at)} ago${e.usd ? ' · ' + usd(e.usd, 0) : e.sol ? ' · ' + e.sol.toFixed(2) + ' SOL' : ''}${e.entryMcap ? ` · entry mcap <b>${usd(e.entryMcap)}</b>` : ''}${e.mcapNow ? ` · now ${usd(e.mcapNow)}` : ''}</div></div>
+      ${e.entryMcap && e.mcapNow ? `<span class="${e.mcapNow >= e.entryMcap ? 'up' : 'dn'} mono cx">${(e.mcapNow / e.entryMcap).toFixed(2)}x</span>` : ''}</a>`).join('')}</div>`
+    : `<div class="mut">No buys seen yet. ${d.tracked} wallets are being checked in rotation (a full pass takes about ${Math.max(1, Math.round((d.status.rotationSec || 300) / 60))} min), so buys appear here as they land. Buys are kept for 3 days.</div>`;
+  app.querySelectorAll('[data-go]').forEach(a => a.onclick = e => { if (e.metaKey || e.ctrlKey) return; e.preventDefault(); go(a.getAttribute('href')); });
+}
 async function loadSmartToken(mint) {
   const el = $('#smStrip'); if (!el) return;
   try {
@@ -583,7 +631,7 @@ async function loadTrades(pool, sym) {
     const el = $('#trades'); if (!el) return;
     $('#trUpd').textContent = 'live · 20s';
     if (CUR_CHAIN === 'solana' && KNOWN.size && rows.some(t => KNOWN.has(t.wallet)) && !$('#smStrip .smcard')) loadSmartToken(CUR_MINT);
-    el.innerHTML = rows.length ? `<table><thead><tr><th class="l">Time</th><th class="l">Type</th><th>USD</th><th>${esc(sym)}</th><th>Price</th><th class="l">Wallet</th></tr></thead><tbody>${rows.slice(0, 25).map(t => `<tr ${CUR_CHAIN === 'solana' ? `onclick="window.open('https://solscan.io/tx/${esc(t.tx)}','_blank')"` : ''}><td class="l dim">${age(Date.parse(t.at))} ago</td><td class="l ${t.kind === 'buy' ? 'up' : 'dn'}" style="font-weight:700">${t.kind === 'buy' ? 'Buy' : 'Sell'}</td><td class="${t.kind === 'buy' ? 'up' : 'dn'}">${usd(t.usd, 2)}</td><td class="mono">${t.tokenAmount != null ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(t.tokenAmount) : '—'}</td><td class="mono">${price(t.price)}</td><td class="l mono"><a style="color:var(--b)" href="https://solscan.io/account/${esc(t.wallet)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${KNOWN.has(t.wallet) ? `<span class="chip smart" title="Public KOL wallet">${SM_ICO} ${esc(KNOWN.get(t.wallet).label)}</span>` : esc(short(t.wallet))}</a></td></tr>`).join('')}</tbody></table>` : '<div class="mut">No recent trades reported.</div>';
+    el.innerHTML = rows.length ? `<table><thead><tr><th class="l">Time</th><th class="l">Type</th><th>USD</th><th>${esc(sym)}</th><th>Price</th><th class="l">Wallet</th></tr></thead><tbody>${rows.slice(0, 25).map(t => `<tr ${CUR_CHAIN === 'solana' ? `onclick="window.open('https://solscan.io/tx/${esc(t.tx)}','_blank')"` : ''}><td class="l dim">${age(Date.parse(t.at))} ago</td><td class="l ${t.kind === 'buy' ? 'up' : 'dn'}" style="font-weight:700">${t.kind === 'buy' ? 'Buy' : 'Sell'}</td><td class="${t.kind === 'buy' ? 'up' : 'dn'}">${usd(t.usd, 2)}</td><td class="mono">${t.tokenAmount != null ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(t.tokenAmount) : '—'}</td><td class="mono">${price(t.price)}</td><td class="l mono"><a style="color:var(--b)" href="https://solscan.io/account/${esc(t.wallet)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${KNOWN.has(t.wallet) ? `<span class="chip ${KNOWN.get(t.wallet).cat === 'caller' ? 'caller' : 'smart'}" title="${KNOWN.get(t.wallet).cat === 'caller' ? 'Public pump.fun caller' : 'Public KOL / top trader wallet'}">${KNOWN.get(t.wallet).cat === 'caller' ? '📣' : SM_ICO} ${esc(KNOWN.get(t.wallet).label)}</span>` : esc(short(t.wallet))}</a></td></tr>`).join('')}</tbody></table>` : '<div class="mut">No recent trades reported.</div>';
   } catch (e) { const el = $('#trades'); if (el && !el.querySelector('table')) el.innerHTML = `<div class="mut">Trades unavailable (${esc(e.message)}).</div>`; }
 }
 const candleCache = {};

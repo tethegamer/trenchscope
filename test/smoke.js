@@ -19,6 +19,8 @@ const srv = app.listen(0, async () => {
     let tr; for (let i = 0; i < 3 && !tr; i++) { try { tr = await j('/api/trades/' + t.main.pair + '?mint=DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'); } catch (e) { if (i === 2) throw e; await new Promise(z => setTimeout(z, 6000)); } }
     console.log(`✓ trades: ${tr.rows.length}`);
     const sm = await j('/api/smart'); assert.ok(sm.tracked > 0 && sm.tokens); const smt = await j('/api/smart/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'); assert.ok(Array.isArray(smt.events) && smt.known.length); console.log(`✓ smart money: ${sm.tracked} wallets`);
+    const cl = await j('/api/callers'); assert.ok(cl.board.length === sm.tracked && cl.callers >= 20 && Array.isArray(cl.recent)); assert.ok(cl.board.some(w => w.stats?.pump?.hit2x != null)); console.log(`✓ top callers: ${cl.callers} callers / ${cl.tracked} wallets`);
+    const ls = await j('/api/live/status'); assert.ok('connected' in ls); console.log('✓ live status');
     const s = await j('/api/search?q=bonk'); assert.ok(s.rows.length); console.log(`✓ search: ${s.rows.length}`);
     console.log('ALL PASSED'); process.exit(0);
   } catch (e) { console.error('✗', e.message); process.exit(1); }

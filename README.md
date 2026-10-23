@@ -157,3 +157,21 @@ The **New pairs** tab streams in real time. The server keeps one websocket to Pu
 | `LIVE_FEED` | on | `0` turns the PumpPortal websocket off |
 | `PUMPPORTAL_WS` | `wss://pumpportal.fun/api/data` | Override the feed URL |
 | `DEX_POLL_MS` | `15000` | DEX new-pool poll interval while viewers are connected (minimum 8000) |
+
+## Top Callers
+
+`/callers` (the **📣 Top Callers** tab) tracks 123 public wallets (`data/smart-wallets.js`, each one cited):
+- 27 pump.fun callers (`cat: 'caller'`, verified on pump.fun's public profile API)
+- 96 KOL / top traders (`cat: 'trader'`, from the kolscan.io leaderboard)
+
+The page shows:
+- a leaderboard with pump.fun 2x hit rate and kolscan 30d PnL (snapshot in `data/caller-stats.json`)
+- live recent buys, with an approximate entry mcap
+- 📣 caller chips on list rows, token pages and trades
+
+`GET /api/callers` serves the data.
+
+Polling scales without extra RPC load:
+- `WALLET_POLL_PER_TICK` wallets per 20s tick (default 8). About half of each tick goes to wallets that traded in the last 30 min; the rest rotate through everyone.
+- Per-wallet signature checkpoints, and at most 15 transactions read per poll.
+- `SMART_BACKFILL` sets how many transactions to read on a wallet's first look (default 5).
