@@ -340,3 +340,4 @@ tr.slide td{animation:slidein .55s ease-out}tr.slide{background:rgba(20,241,149,
 .cbuy img,.cbuy .ph{width:32px;height:32px;border-radius:50%;flex:none;background:#1b2130;object-fit:cover}.cbuy>div{flex:1;min-width:0;font-size:13px;line-height:1.5}.cbuy .cx{font-weight:700}
 .ctable td.l{white-space:normal;width:40%}.ctable .who .wl a{white-space:nowrap}
 .ctable{min-width:0!important}
+@media (max-width:760px){.tabs{flex-wrap:wrap;overflow-x:visible}}
