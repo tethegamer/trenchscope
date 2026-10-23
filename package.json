@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/payments.test.js test/pnl.test.js test/score.test.js test/xbot.test.js test/alerts.test.js test/smart.test.js test/jupiter.test.js test/pwa.test.js && node test/og.js && node test/smoke.js"
+    "test": "node --test test/payments.test.js test/pnl.test.js test/score.test.js test/xbot.test.js test/alerts.test.js test/smart.test.js test/jupiter.test.js test/pwa.test.js test/live.test.js && node test/og.js && node test/smoke.js"
   },
   "engines": {
     "node": ">=18"
@@ -17,6 +17,7 @@
     "express": "^4.19.2",
     "lightweight-charts": "^4.2.0",
     "qrcode": "^1.5.4",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "ws": "^8.22.0"
   }
 }

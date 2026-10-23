@@ -147,3 +147,13 @@ Push the repo, then **New → Blueprint** in Render and select it — `render.ya
 - Not financial advice. Scores are heuristics.
 
 MIT licensed.
+
+## Live New pairs
+
+The **New pairs** tab streams in real time. The server keeps one websocket to PumpPortal (`subscribeNewToken`), so every pump.fun and LetsBonk launch shows up within about a second of hitting the chain. It also polls GeckoTerminal new pools every 15s, but only while someone is watching. New coins reach browsers over Server-Sent Events (`GET /api/live/new?chain=solana`) and slide in under a **LIVE** indicator. If you've scrolled down, they wait behind an "↑ N new coins" pill so the list doesn't jump. `GET /api/live/status` shows the feed's health. All of these are optional:
+
+| env | default | |
+|---|---|---|
+| `LIVE_FEED` | on | `0` turns the PumpPortal websocket off |
+| `PUMPPORTAL_WS` | `wss://pumpportal.fun/api/data` | Override the feed URL |
+| `DEX_POLL_MS` | `15000` | DEX new-pool poll interval while viewers are connected (minimum 8000) |

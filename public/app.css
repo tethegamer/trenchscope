@@ -324,3 +324,8 @@ tr.promoted{background:linear-gradient(90deg,rgba(255,209,102,.06),transparent 4
 .inst-steps li{display:flex;gap:10px;align-items:flex-start;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:10px;padding:10px}
 .inst-n{flex:none;width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#22d3ee,#8b3dff);color:#fff;font-weight:700;font-size:12px;display:grid;place-items:center}
 .inst-share,.inst-plus{display:inline-grid;place-items:center;vertical-align:-3px;color:#4f9cff}.inst-warn{background:rgba(255,200,0,.08);border:1px solid rgba(255,200,0,.3);border-radius:10px;padding:8px;font-size:13px}.inst-foot{font-size:12px;margin:0 0 12px}
+/* live new pairs */
+tr.slide td{animation:slidein .55s ease-out}tr.slide{background:rgba(20,241,149,.06)}.c.slide{animation:slidein .55s ease-out;border-color:rgba(20,241,149,.45)}
+@keyframes slidein{from{transform:translateX(-24px);opacity:0;background:rgba(20,241,149,.18)}}
+.livepill{display:inline-flex;align-items:center;gap:5px;font-weight:800;font-size:11px;letter-spacing:.06em;color:var(--g);border:1px solid rgba(20,241,149,.35);background:rgba(20,241,149,.08);border-radius:999px;padding:2px 8px 2px 6px}
+.newpill{position:fixed;top:78px;left:50%;transform:translateX(-50%);z-index:40;background:var(--g);color:#04110a;border:0;border-radius:999px;padding:8px 14px;font-weight:800;box-shadow:0 8px 30px rgba(20,241,149,.35);cursor:pointer;animation:in .25s}

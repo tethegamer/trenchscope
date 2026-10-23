@@ -185,7 +185,7 @@ async function openProfile() {
 // ---------- list page ----------
 const TABS = [
   { id: 'trending', label: '🔥 Trending', desc: 'Hottest Solana pairs right now (GeckoTerminal trending + DexScreener boosts), enriched with live DexScreener stats.' },
-  { id: 'new', label: '✨ New pairs', desc: 'Freshly created pools and newly listed token profiles, newest first.' },
+  { id: 'new', label: '<span class="dot"></span> ✨ New pairs', desc: 'Every new coin the moment it launches: pump.fun &amp; LetsBonk launches stream in live, plus fresh DEX pools, newest first.' },
   { id: 'gainers', label: '🚀 Gainers', desc: 'Biggest 24h movers with at least $5K liquidity across tracked pairs.' },
   { id: 'pumpfun', label: '<span class="dot"></span> Pump.fun live', desc: 'Coins currently live-streaming on pump.fun (bonding curve & migrated).' },
   { id: 'watch', label: '★ Watchlist', desc: 'Your starred tokens — saved locally in this browser.' },
@@ -233,7 +233,7 @@ document.addEventListener('click', e => { if (e.target.closest('#chainBtn')) cha
 function filtered() {
   let r = rows.map(x => ({ ...x, safety: safetyMap[x.mint] || x.safety, og: ogMap[x.mint] || x.og, score: scoreMap[x.mint] || x.score }));
   const n = v => v ?? 0;
-  if (st.liq) r = r.filter(x => n(x.liquidity) >= st.liq || (st.tab === 'pumpfun' && x.liquidity == null));
+  if (st.liq) r = r.filter(x => n(x.liquidity) >= st.liq || ((st.tab === 'pumpfun' || x.live) && x.liquidity == null));
   if (st.vol) r = r.filter(x => n(x.volume?.h24) >= st.vol);
   if (st.mcapMin) r = r.filter(x => n(x.mcap || x.fdv) >= st.mcapMin);
   if (st.mcapMax) r = r.filter(x => n(x.mcap || x.fdv) <= st.mcapMax);
@@ -278,6 +278,7 @@ function listPage() {
   const rs = $('#reset'); if (rs) rs.onclick = () => { st = { ...DEF, tab: st.tab }; saveSt(); listPage(); };
   app.querySelectorAll('th[data-s]').forEach(th => th.onclick = () => { const k = th.dataset.s; if (st.sort === k) st.dir *= -1; else { st.sort = k; st.dir = -1; } saveSt(); listPage(); });
   load(true);
+  liveSync(); cleanup.push(liveStop);
   const iv = setInterval(() => load(false), 30000); cleanup.push(() => clearInterval(iv));
   const sv = setInterval(pollSafety, 4000); cleanup.push(() => clearInterval(sv));
 }
@@ -297,8 +298,10 @@ async function load(first) {
       // fetch fuller rows for watched tokens via search-free path: reuse token endpoint lazily
       lastUpdated = Date.now();
     } else {
+      const keep = st.tab === 'new' ? rows.filter(x => x._fresh && Date.now() - x._fresh < 120e3) : [];
       const d = await api('/api/list/' + st.tab + (st.chain !== 'solana' ? '?chain=' + st.chain : ''));
       rows = d.rows; lastUpdated = d.updatedAt;
+      if (keep.length) { const have = new Set(rows.map(x => x.mint)); rows = [...keep.filter(x => !have.has(x.mint)), ...rows].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); }
       for (const r of rows) { if (r.safety) safetyMap[r.mint] = r.safety; if (r.og) ogMap[r.mint] = r.og; if (r.score) scoreMap[r.mint] = r.score; }
     }
     draw(); pollSafety(); loadSmart(first);
@@ -319,6 +322,43 @@ async function pollSafety() {
     if (n) draw();
   } catch {}
 }
+// ---------- live new pairs (Server-Sent Events from /api/live/new) ----------
+const LIVE = { es: null, chain: null, on: false, pump: false, times: [], lat: [], pending: [], last: 0, timer: 0 };
+const fresh = x => x._fresh && Date.now() - x._fresh < 1500;
+function liveStop() { LIVE.es?.close(); LIVE.es = null; LIVE.on = false; LIVE.pending = []; $('#newPill')?.remove(); }
+function liveSync() {
+  if (st.tab !== 'new' || !('EventSource' in window)) return liveStop();
+  if (LIVE.es && LIVE.chain === st.chain) return;
+  liveStop(); LIVE.chain = st.chain;
+  const es = LIVE.es = new EventSource('/api/live/new?chain=' + encodeURIComponent(st.chain));
+  es.addEventListener('hello', e => { const d = JSON.parse(e.data); LIVE.on = true; LIVE.pump = d.pump; for (const r of d.recent || []) addLive(r, false); liveDraw(); });
+  es.addEventListener('ping', e => { LIVE.pump = JSON.parse(e.data).pump; LIVE.on = true; renderLive(); });
+  es.addEventListener('token', e => { const d = JSON.parse(e.data); LIVE.lat.push(Date.now() - d.sent); LIVE.lat = LIVE.lat.slice(-20); if (addLive(d.row, true)) liveDraw(); });
+  es.addEventListener('update', e => { const { row } = JSON.parse(e.data); const x = rows.find(z => z.mint === row.mint) || LIVE.pending.find(z => z.mint === row.mint); if (x) { x.icon = row.icon; x.socials = row.socials; x.websites = row.websites; liveDraw(); } });
+  es.onerror = () => { LIVE.on = false; renderLive(); }; // EventSource reconnects by itself
+}
+function addLive(r, isNew) {
+  if (rows.some(z => z.mint === r.mint) || LIVE.pending.some(z => z.mint === r.mint)) return false;
+  const row = { ...r, _fresh: isNew ? Date.now() : 0 };
+  if (isNew) { LIVE.times.push(Date.now()); LIVE.last = Date.now(); }
+  // while you're scrolled down reading, hold new coins so the list doesn't jump; a pill brings them in
+  if (isNew && scrollY > 400) { LIVE.pending.unshift(row); pill(); return false; }
+  rows.unshift(row); return true;
+}
+function pill() {
+  let p = $('#newPill');
+  if (!p) { p = document.createElement('button'); p.id = 'newPill'; p.className = 'newpill'; document.body.appendChild(p); p.onclick = () => { rows = [...LIVE.pending.map(x => ({ ...x, _fresh: Date.now() })), ...rows]; LIVE.pending = []; p.remove(); scrollTo({ top: 0, behavior: 'smooth' }); draw(); }; }
+  p.textContent = `↑ ${LIVE.pending.length} new coin${LIVE.pending.length > 1 ? 's' : ''}`;
+}
+function liveDraw() { if (!$('#tb') || st.tab !== 'new') return liveStop(); clearTimeout(LIVE.timer); LIVE.timer = setTimeout(() => { draw(); pollSafety(); }, 250); }
+function renderLive(shown) {
+  const u = $('#upd'); if (!u || st.tab !== 'new') return;
+  LIVE.times = LIVE.times.filter(t => Date.now() - t < 60e3);
+  const lat = LIVE.lat.length ? Math.round(LIVE.lat.reduce((a, b) => a + b, 0) / LIVE.lat.length) : null;
+  u.innerHTML = LIVE.on ? `<span class="livepill" title="${LIVE.pump ? 'pump.fun &amp; LetsBonk launches arrive the instant they hit the chain' : 'New DEX pools are checked every 15s'}"><span class="live"></span>LIVE</span> ${shown ?? filtered().length} shown · ${LIVE.times.length} new/min${LIVE.last ? ` · last ${age(LIVE.last)} ago` : ''}${lat != null && lat < 5000 ? ` · <span class="dim">${lat}ms</span>` : ''}`
+    : `<span class="live" style="background:var(--y)"></span> reconnecting… · updated ${age(lastUpdated)} ago`;
+}
+setInterval(() => { if (st.tab === 'new' && LIVE.es) renderLive(); }, 1000);
 function draw() {
   const r = filtered();
   const tb = $('#tb'); if (!tb) return;
@@ -326,7 +366,7 @@ function draw() {
   const safeN = scanned.filter(x => safetyMap[x.mint].grade === 'safe').length;
   const bund = scanned.filter(x => safetyMap[x.mint].bundled).length;
   $('#stats').innerHTML = rows.length ? `<div class="stat"><small>Pairs</small><b>${rows.length}</b></div><div class="stat"><small>Scanned</small><b>${scanned.length}</b></div><div class="stat"><small>Safe ≥80</small><b class="up">${safeN}</b></div><div class="stat"><small>Bundled</small><b class="dn">${bund}</b></div>` : '';
-  $('#upd').innerHTML = lastUpdated ? `<span class="live"></span> ${r.length} shown · updated ${age(lastUpdated)} ago · auto-refresh 30s` : '';
+  if (st.tab === 'new' && LIVE.on) { renderLive(r.length); } else $('#upd').innerHTML = lastUpdated ? `<span class="live"></span> ${r.length} shown · updated ${age(lastUpdated)} ago · auto-refresh 30s` : '';
   if (!r.length) {
     const msg = st.smartOnly && !Object.keys(smMap).length ? 'No smart-money buys tracked in the last 24h yet — the tracker checks 20 public KOL wallets + your wallets every minute or so.' : st.tab === 'watch' && !Object.keys(watch).length ? 'Your watchlist is empty. Tap ☆ on any token to track it here.' : st.safeOnly && scanned.length < rows.length ? 'No tokens pass the filters yet — safety scans are still running, give it a few seconds.' : 'No tokens match these filters.';
     tb.innerHTML = `<tr><td colspan="14" class="empty">${msg}</td></tr>`; $('#cards').innerHTML = `<div class="empty">${msg}</div>`; return;
@@ -335,7 +375,7 @@ function draw() {
   tb.innerHTML = r.slice(0, 200).map((x, i) => {
     const b = x.txns?.h24?.buys, s = x.txns?.h24?.sells, tot = (b || 0) + (s || 0);
     const L = links(x.mint, x.pair);
-    return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class=""${x.promo ? 'promoted' : ''}">
+    return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class="${x.promo ? 'promoted' : ''}${fresh(x) ? ' slide' : ''}">
       <td class="l"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}" title="Watchlist">${isWatched(x.mint) ? '★' : '☆'}</button></td>
       <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''}</span></div></div></td>
       <td class="l"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span></td>
@@ -345,7 +385,7 @@ function draw() {
       <td>${usd(x.liquidity)}</td><td>${usd(x.mcap || x.fdv)}</td>
       <td><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : L.jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></td></tr>`;
   }).join('');
-  $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
+  $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c${fresh(x) ? ' slide' : ''}" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
       <div class="tok" style="grid-column:1/3">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)}</span></div></div>
       <div class="pr"><b class="mono">${price(x.priceUsd)}</b>${pct(x.change?.h24 ?? x.change?.h1)}</div>
       <div class="sf"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button><a class="buy" href="${x.chain && x.chain !== 'solana' ? `https://dexscreener.com/${x.chain}/${x.pair}` : links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>${x.chain && x.chain !== 'solana' ? 'Trade' : 'Buy'}</a></span></div>

@@ -426,6 +426,34 @@ async function chainList(kind, chain) {
     return rows;
   });
 }
+// ---------- real-time new pairs (PumpPortal websocket + fast DEX new-pool polling, pushed over SSE) ----------
+const { createLiveFeed } = require('./lib/livefeed');
+let SOL_USD = null;
+const refreshSol = () => dexTokens(['So11111111111111111111111111111111111111112']).then(m => { const p = m.values().next().value; if (p) SOL_USD = num(p.priceUsd) || SOL_USD; }).catch(() => {});
+const LIVE = createLiveFeed({
+  WebSocket: (() => { try { return require('ws'); } catch { return null; } })(),
+  fetchJSON: async (u, ms) => { const r = await fetch(u, { signal: AbortSignal.timeout(ms) }); if (!r.ok) throw new Error(r.status); return r.json(); },
+  solUsd: () => SOL_USD,
+  pollPairs: chain => cached('livepairs:' + chain, 10e3, async () => {
+    if (chain === 'solana') return (await enrich(await geckoPools('new_pools', 1))).filter(r => r.pair && r.createdAt).sort((a, b) => b.createdAt - a.createdAt);
+    const net = chain === 'all' ? '' : chains.byId[chain]?.gt; if (net === undefined) return [];
+    const d = await getJSON(`https://api.geckoterminal.com/api/v2/networks/${net ? net + '/' : ''}new_pools?page=1`, { prio: PRIO.normal });
+    return (d.data || []).map(fromGecko).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }),
+});
+app.get('/api/live/status', (req, res) => ok(res, { ...LIVE.stats, buffered: LIVE.recent(500).length, viewers: LIVE.viewers(), solUsd: SOL_USD }, 2));
+app.get('/api/live/new', (req, res) => {
+  const chain = String(req.query.chain || 'solana');
+  if (chain !== 'solana' && chain !== 'all' && !chains.byId[chain]) return fail(res, new Error('unsupported chain'), 404);
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  res.flushHeaders?.();
+  const send = (ev, data) => { res.write(`event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`); res.flush?.(); };
+  const slim = r => ({ ...r, uri: undefined, sig: undefined, score: r.chain && r.chain !== 'solana' ? null : peekScore('solana', r.mint) });
+  send('hello', { chain, pump: chain === 'solana' || chain === 'all' ? LIVE.stats.connected : false, now: Date.now(), recent: chain === 'solana' || chain === 'all' ? LIVE.recent(30).map(slim) : [] });
+  const off = LIVE.watch(chain, ev => send(ev.type, { row: slim(ev.row), sent: Date.now() }));
+  const hb = setInterval(() => send('ping', { now: Date.now(), pump: LIVE.stats.connected }), 20e3);
+  req.on('close', () => { clearInterval(hb); off(); });
+});
 app.get('/api/chains', (req, res) => ok(res, { chains: chains.SUPPORTED.map(({ id, name, color }) => ({ id, name, color })), skipped: chains.CHAINS.filter(c => !c.gt).map(c => c.name) }, 3600));
 app.get('/api/list/:kind', async (req, res) => {
   const chain = String(req.query.chain || 'solana');
@@ -445,6 +473,12 @@ app.get('/api/list/:kind', async (req, res) => {
       const missing = Object.keys(boosts).filter(m => !rows.some(r => r.mint === m));
       if (missing.length) { const ds = await dexTokens(missing); rows = [...[...ds.values()].map(fromDex), ...rows]; }
       rows = rows.map((r, i) => ({ r, i })).sort((a, b) => (boosts[b.r.mint] || 0) - (boosts[a.r.mint] || 0) || a.i - b.i).map(x => x.r);
+    }
+    if (req.params.kind === 'new') {
+      // fold in launches the live feed saw that the 45s-cached GeckoTerminal list hasn't caught up with yet
+      const have = new Set(rows.map(r => r.mint));
+      const live = LIVE.recent(80).filter(r => !have.has(r.mint)).map(r => ({ ...r, uri: undefined, sig: undefined }));
+      if (live.length) rows = [...live, ...rows].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }
     for (const r of rows) og.sample(r.mint, r.mcap ?? r.fdv);
     enqueue(rows.slice(0, 120).map(r => r.mint)); enqueueOG(rows.slice(0, 120)); enqueueScore(rows.slice(0, 120).map(r => r.mint));
@@ -728,6 +762,7 @@ app.get(/^\/(token\/.*|advertise|profile|order\/.*|c\/.*)?$/, (req, res) => res.
 
 if (require.main === module) {
   app.listen(PORT, () => console.log(`On the Scope on http://localhost:${PORT}`));
+  refreshSol(); setInterval(refreshSol, 5 * 60e3).unref(); LIVE.start();
   // warm caches so the first visitor sees data and safety scores
   const warm = () => Promise.allSettled(Object.keys(lists).map(k => lists[k]().then(r => { enqueue(r.slice(0, 80).map(x => x.mint)); enqueueOG(r.slice(0, 80)); })));
   warm(); setInterval(warm, 90e3).unref();
