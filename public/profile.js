@@ -405,13 +405,16 @@ function showResult(r) {
 }
 
 // ---------- shareable PnL card ----------
-const LOGO_ARCS = ['M73.3 21.0 A44 44 0 0 1 107.0 54.7', 'M107.0 73.3 A44 44 0 0 1 73.3 107.0', 'M54.7 107.0 A44 44 0 0 1 21.0 73.3', 'M21.0 54.7 A44 44 0 0 1 54.7 21.0', 'M64 4v26M64 98v26M4 64h26M98 64h26'];
-const LOGO_T = 'M40 42h48v14H71v34H57V56H40z';
+const LOGO_ARCS = ['M75.5 18.4A47 47 0 0 1 109.6 52.5', 'M109.6 75.5A47 47 0 0 1 75.5 109.6', 'M52.5 109.6A47 47 0 0 1 18.4 75.5', 'M18.4 52.5A47 47 0 0 1 52.5 18.4', 'M64 5v18M64 105v18M5 64h18M105 64h18'];
+const LOGO_WICKS = ['M44 54v30', 'M64 42v38', 'M84 32v40'];
 function drawLogo(g, x, y, size, alpha = 1) {
   g.save(); g.translate(x, y); g.scale(size / 128, size / 128); g.globalAlpha = alpha;
-  const grad = g.createLinearGradient(20, 10, 108, 118); grad.addColorStop(0, '#22d3ee'); grad.addColorStop(0.5, '#4f7cff'); grad.addColorStop(1, '#8b3dff');
-  g.strokeStyle = grad; g.lineWidth = 9; g.lineCap = 'butt'; LOGO_ARCS.forEach(d => g.stroke(new Path2D(d)));
-  g.fillStyle = grad; g.fill(new Path2D(LOGO_T)); g.restore();
+  const grad = g.createLinearGradient(16, 12, 112, 116); grad.addColorStop(0, '#84e639'); grad.addColorStop(0.55, '#14f195'); grad.addColorStop(1, '#22d3ee');
+  g.strokeStyle = grad; g.lineWidth = 8.5; g.lineCap = 'round'; LOGO_ARCS.forEach(d => g.stroke(new Path2D(d)));
+  g.lineWidth = 4; LOGO_WICKS.forEach(d => g.stroke(new Path2D(d)));
+  const bar = (bx, by, bw, bh, fill) => { g.fillStyle = fill; roundRect(g, bx, by, bw, bh, 3); g.fill(); };
+  bar(38.5, 62, 11, 15, '#14f195'); bar(58.5, 50, 11, 20, grad); bar(78.5, 38, 11, 24, '#84e639');
+  g.restore();
 }
 const PERIODS = { all: 'Scanned window', d30: 'Last 30 days', d7: 'Last 7 days', d1: 'Last 24 hours' };
 async function renderCard(r, label, period) {

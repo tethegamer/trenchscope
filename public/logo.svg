@@ -1,12 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
-  <defs><linearGradient id="tsg" x1="20" y1="10" x2="108" y2="118" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#22d3ee"/><stop offset=".5" stop-color="#4f7cff"/><stop offset="1" stop-color="#8b3dff"/></linearGradient></defs>
-  <g stroke="url(#tsg)" stroke-width="9" stroke-linecap="butt">
-    <!-- ring split into 4 arcs (gaps at 12/3/6/9 o'clock) -->
-    <path d="M73.3 21.0 A44 44 0 0 1 107.0 54.7"/><path d="M107.0 73.3 A44 44 0 0 1 73.3 107.0"/>
-    <path d="M54.7 107.0 A44 44 0 0 1 21.0 73.3"/><path d="M21.0 54.7 A44 44 0 0 1 54.7 21.0"/>
-    <!-- crosshair ticks through the gaps -->
-    <path d="M64 4v26M64 98v26M4 64h26M98 64h26"/>
+  <defs>
+    <linearGradient id="osg" x1="16" y1="12" x2="112" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#84e639"/>
+      <stop offset=".55" stop-color="#14f195"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <g stroke="url(#osg)" stroke-width="8.5" stroke-linecap="round">
+    <path d="M75.5 18.4A47 47 0 0 1 109.6 52.5"/>
+    <path d="M109.6 75.5A47 47 0 0 1 75.5 109.6"/>
+    <path d="M52.5 109.6A47 47 0 0 1 18.4 75.5"/>
+    <path d="M18.4 52.5A47 47 0 0 1 52.5 18.4"/>
+    <path d="M64 5v18M64 105v18M5 64h18M105 64h18"/>
   </g>
-  <!-- bold T -->
-  <path d="M40 42h48v14H71v34H57V56H40z" fill="url(#tsg)"/>
+  <g stroke="url(#osg)" stroke-width="4" stroke-linecap="round">
+    <path d="M44 54v30"/>
+    <path d="M64 42v38"/>
+    <path d="M84 32v40"/>
+  </g>
+  <rect x="38.5" y="62" width="11" height="15" rx="3" fill="#14f195"/>
+  <rect x="58.5" y="50" width="11" height="20" rx="3" fill="url(#osg)"/>
+  <rect x="78.5" y="38" width="11" height="24" rx="3" fill="#84e639"/>
 </svg>
