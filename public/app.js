@@ -475,7 +475,7 @@ $('#searchForm').onsubmit = e => {
 document.addEventListener('keydown', e => {
   if (e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) && !document.activeElement?.isContentEditable) { e.preventDefault(); $('#q').focus(); }
   if (e.key === 'Escape') {
-    $('#gloss')?.remove(); $('#csheet')?.remove(); $('#pnlModal')?.remove(); $('#iosSheet')?.remove();
+    $('#gloss')?.remove(); $('#csheet')?.remove(); $('#pcard')?.remove(); $('#pnlModal')?.remove(); $('#iosSheet')?.remove();
     if (!$('#drawer').hidden) $('#drawer').hidden = true;
     if (!$('#results').hidden) $('#results').hidden = true;
   }
@@ -847,18 +847,18 @@ function glossary(force) {
   if (!force && (LS.get('glossaryOff', false) || sessionStorage.getItem('ts:glossarySeen'))) return;
   $('#gloss')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div class="modal-bg" id="gloss"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="glT">
-    <h2 id="glT">Welcome to On the Scope</h2><p class="mut" style="margin:-6px 0 14px;font-size:13px">Quick glossary of the tags you'll see:</p>
-    <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate — i.e. migrate from its launchpad to open trading.</dd>
+    <div class="mhead"><div><h2 id="glT">Welcome to On the Scope</h2><p class="mut" style="margin:2px 0 0;font-size:13px">Quick glossary of the tags you'll see:</p></div><button class="x" id="glX" aria-label="Close">✕</button></div>
+    <div class="gl-body"><dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate — i.e. migrate from its launchpad to open trading.</dd>
     <dt><span class="chip vamp">VAMP</span></dt><dd>A later launch reusing an OG's name that has also graduated.</dd>
     <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 3x+ the OG's — earned when a vamp genuinely outgrows the original. It can lose the badge if it drops back under 3x.</dd>
     <dt><span class="chip caller">📣 2</span></dt><dd><b>Top Callers</b>: public pump.fun callers bought this token in the last 24h. See <a href="/callers" data-link style="color:var(--b)">📣 Top Callers</a> for their 2x hit rate and live buy feed.</dd>
     <dt><span class="chip smart">🧠 3</span></dt><dd><b>Smart money</b>: tracked KOL trader &amp; caller wallets (123 public wallets) bought in the last 24h. <b>👛 You</b> marks your own tracked wallets.</dd>
     <dt>${scopeTag()}</dt><dd><b>Scoped</b>: the team paid for an enhanced profile that On the Scope reviewed. A paid listing, not an endorsement.</dd>
     <dt><span class="chip sscore s-g">${SCOPE_ICO}72</span></dt><dd><b>Scope Score</b> (0–100): 60% <b>coin fairness</b> (insiders, bundles, snipers, dev wallet, top holders, LP, fees → OK / NEUTRAL / SKETCHY / RIGGED) + 40% <b>narrative</b>, a heuristic of website, domain age, socials and GitHub (LIKELY REAL / PARTLY REAL / LIKELY LARP). DYOR.</dd></dl>
-    <p class="dim" style="font-size:12px;margin:-6px 0 16px">Tokens that haven't graduated from their launchpad yet get no OG/VAMP tag.</p>
+    <p class="dim" style="font-size:12px;margin:0">Tokens that haven't graduated from their launchpad yet get no OG/VAMP tag.</p></div>
     <div class="mbtns"><button class="btn" id="glNo">Don't show again</button><button class="btn pri" id="glOk">Okay</button></div></div></div>`);
   const close = () => $('#gloss')?.remove();
-  $('#glOk').onclick = () => { sessionStorage.setItem('ts:glossarySeen', '1'); close(); };
+  $('#glOk').onclick = $('#glX').onclick = () => { sessionStorage.setItem('ts:glossarySeen', '1'); close(); };
   $('#glNo').onclick = () => { LS.set('glossaryOff', true); close(); };
   $('#gloss').onclick = e => { if (e.target.id === 'gloss' || e.target.closest('a[data-link]')) $('#glOk').click(); };
   $('#glOk').focus();
