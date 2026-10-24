@@ -129,7 +129,7 @@ const dt = ts => ts ? new Date(ts).toLocaleString(undefined, { year: 'numeric', 
 function ogTag(o, big) {
   if (!o) return '';
   if (o.status === 'og') return `<span class="chip og" title="${esc(`OG: first token with this name/ticker to graduate — earliest ${o.gradDex} pair ${dt(o.gradAt)}. ${o.vamps ? o.vamps + ' later vamp(s) reuse the name.' : 'No vamps found.'}${o.olderNonGraduated ? ' Note: ' + o.olderNonGraduated + ' same-name token(s) traded earlier on other DEXes without graduating.' : ''} Based on DexScreener-indexed pairs only.`)}">OG${big && o.vamps ? ` · ${o.vamps} vamp${o.vamps > 1 ? 's' : ''}` : ''}</span>`;
-  const vvChip = o.vv ? `<span class="chip vv" title="${esc(`Valid Vamp: flipped the OG 5x+ — smoothed (4h median) market cap ${o.ratio.toFixed(1)}x ${o.og.symbol}'s, and at least 24h old. Lost if it falls back under 5x.`)}">VV${big ? ' · Valid Vamp ' + o.ratio.toFixed(1) + 'x' : ''}</span>` : '';
+  const vvChip = o.vv ? `<span class="chip vv" title="${esc(`Valid Vamp: flipped the OG 3x+ — smoothed (4h median) market cap ${o.ratio.toFixed(1)}x ${o.og.symbol}'s, and at least 24h old. Lost if it falls back under 3x.`)}">VV${big ? ' · Valid Vamp ' + o.ratio.toFixed(1) + 'x' : ''}</span>` : '';
   if (o.status === 'vamp' && o.og) return vvChip + `<a class="chip vamp" href="/token/${o.og.mint}" data-link data-stop title="${esc(`Vamp: reused a name that already graduated earlier — ${o.og.symbol} (${short(o.og.mint)}) graduated first (${o.og.gradDex}, ${dt(o.og.gradAt)})${o.gradAt ? '; this one graduated ' + dt(o.gradAt) : '; this one has not graduated'}. Click to open the OG. Based on DexScreener-indexed pairs only.`)}">${big ? 'Vamp of ' + esc(o.og.symbol) + ' ↗' : 'VAMP'}</a>`;
   return '';
 }
@@ -296,7 +296,7 @@ function tabDesc(tab, ch) {
   return tab.desc;
 }
 function listPage() {
-  document.title = 'On the Scope — Solana screener with safety on every row';
+  document.title = 'On the Scope — Multi-chain token screener with safety on every row';
   if (st.tab === 'callers' || (st.chain !== 'solana' && !['trending', 'new', 'gainers'].includes(st.tab))) st.tab = 'trending';
   const tab = TABS.find(t => t.id === st.tab) || TABS[0];
   renderChainBtn();
@@ -514,7 +514,7 @@ async function tokenPage(mint, chain = 'solana') {
   <a href="/" data-link class="mut" style="font-size:13px">← Screener</a>
   ${sc && safeUrl(sc.banner) ? `<div class="banner" style="margin-top:10px"><img src="${esc(sc.banner)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></div>` : ''}
   <div class="tp-head" style="margin-top:10px">${icon({ icon: (sc && safeUrl(sc.logo)) || d.icon, symbol: d.symbol })}
-    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)}${d.og && d.og.status !== 'none' ? glossLink : ''}${d.flippedBy?.length ? `<span class="chip vamp" title="Valid Vamp(s) have 5x+ this token's smoothed market cap">Flipped by ${esc(d.flippedBy[0].symbol || short(d.flippedBy[0].mint))}</span>` : ''} ${promoTag(d.promo, true)}</h1>
+    <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)}${d.og && d.og.status !== 'none' ? glossLink : ''}${d.flippedBy?.length ? `<span class="chip vamp" title="Valid Vamp(s) have 3x+ this token's smoothed market cap">Flipped by ${esc(d.flippedBy[0].symbol || short(d.flippedBy[0].mint))}</span>` : ''} ${promoTag(d.promo, true)}</h1>
       <div class="addr"><span>${esc(short(mint))}</span><button class="copy" data-copy="${mint}">Copy CA</button>${m.dex ? `<span class="chip">${esc(m.dex)}</span>` : ''}${s.launchpad ? `<span class="chip">${esc(s.launchpad)}</span>` : ''}${m.createdAt ? `<span class="chip">Pair age ${age(m.createdAt)}</span>` : ''}${socials.map(x => `<a class="chip" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join('')}</div></div>
     <div class="price-big" id="pbig" role="button" tabindex="0" title="Tap to switch Price ⇄ Market cap"></div>
   </div>
@@ -850,7 +850,7 @@ function glossary(force) {
     <h2 id="glT">Welcome to On the Scope</h2><p class="mut" style="margin:-6px 0 14px;font-size:13px">Quick glossary of the tags you'll see:</p>
     <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate — i.e. migrate from its launchpad to open trading.</dd>
     <dt><span class="chip vamp">VAMP</span></dt><dd>A later launch reusing an OG's name that has also graduated.</dd>
-    <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 5x+ the OG's. It can lose the badge if it drops back under 5x.</dd>
+    <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 3x+ the OG's — earned when a vamp genuinely outgrows the original. It can lose the badge if it drops back under 3x.</dd>
     <dt><span class="chip caller">📣 2</span></dt><dd><b>Top Callers</b>: public pump.fun callers bought this token in the last 24h. See <a href="/callers" data-link style="color:var(--b)">📣 Top Callers</a> for their 2x hit rate and live buy feed.</dd>
     <dt><span class="chip smart">🧠 3</span></dt><dd><b>Smart money</b>: tracked KOL trader &amp; caller wallets (123 public wallets) bought in the last 24h. <b>👛 You</b> marks your own tracked wallets.</dd>
     <dt>${scopeTag()}</dt><dd><b>Scoped</b>: the team paid for an enhanced profile that On the Scope reviewed. A paid listing, not an endorsement.</dd>

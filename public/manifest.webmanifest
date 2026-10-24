@@ -2,7 +2,7 @@
  "id": "/",
  "name": "On the Scope",
  "short_name": "On the Scope",
- "description": "Memecoin screener with a safety score on every row, smart-money tags, alerts and on-site buys.",
+ "description": "Multi-chain token & memecoin screener with Scope Score, safety checks, OG/VAMP tags, smart-money callers, alerts and Wallet PnL.",
  "start_url": "/?source=pwa",
  "scope": "/",
  "display": "standalone",

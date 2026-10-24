@@ -10,7 +10,7 @@ assert.ok(sameIdentity({ name: 'Flying Tesla Roadster', symbol: 'FTR' }, { name:
 assert.ok(sameIdentity({ name: 'streamoors.fun', symbol: 'STREAM' }, { name: 'Streamoors', symbol: 'STREAM' }));
 assert.ok(!sameIdentity({ name: 'Streamflow', symbol: 'STREAM' }, { name: 'streamoors', symbol: 'STREAM' }));
 console.log('✓ normalize / sameIdentity');
-// Valid Vamp: smoothed mcap >= 5x OG and >= 24h old; dynamic
+// Valid Vamp: smoothed mcap >= 3x OG and >= 24h old; dynamic
 {
   const os = require('os'), fs = require('fs'), path = require('path');
   const { createOG } = require('../lib/og');
@@ -25,11 +25,11 @@ console.log('✓ normalize / sameIdentity');
   feed(V2, [1e6, 1e6, 1e6, 9e6]);                  // short pump to 9x -> not VV
   assert.equal(o.validVamp(rec, V2, now).vv, false);
   const V3 = 'Vamp33333333333333333333333333333';
-  feed(V3, [6e6, 6e6, 6e6, 6e6]);
+  feed(V3, [3.2e6, 3.2e6, 3.2e6, 3.2e6]);          // 3.2x (>= 3x) -> VV!
   assert.equal(o.validVamp(rec, V3, now).vv, true);
   assert.equal(o.validVamp({ ...rec, firstSeen: now - 10 * H }, V3, now).vv, false, 'under 24h');
   o.db.results[V3] = rec; assert.equal(o.flippedBy(OG, now)[0].mint, V3);
-  // dynamic: drops under 5x later -> loses VV
+  // dynamic: drops under 3x later -> loses VV
   [2e6, 2e6, 2e6, 2e6, 2e6, 2e6, 2e6, 2e6, 2e6].forEach((v, i) => o.sample(V3, v, now + (i + 1) * 30 * 60e3));
   [1e6, 1e6, 1e6, 1e6, 1e6, 1e6, 1e6, 1e6, 1e6].forEach((v, i) => o.sample(OG, v, now + (i + 1) * 30 * 60e3));
   assert.equal(o.validVamp(rec, V3, now + 270 * 60e3).vv, false);

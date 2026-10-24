@@ -1,4 +1,4 @@
-// On the Scope — Solana token screener with safety intel on every row.
+// On the Scope — Multi-chain token screener with safety intel on every row.
 const express = require('express');
 const compression = require('compression');
 const path = require('path');

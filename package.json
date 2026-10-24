@@ -1,7 +1,7 @@
 {
   "name": "trenchscope",
   "version": "1.0.0",
-  "description": "Solana token screener with safety scores on every row, dev wallet intel, bundle flags, watchlist and alerts.",
+  "description": "Multi-chain token & memecoin screener with Scope Score, safety checks, OG/VAMP detection, Top Callers, watchlist, alerts and Wallet PnL.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

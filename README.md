@@ -2,11 +2,11 @@
 
 # On the Scope
 
-**The Solana screener that tells you if a token is a rug *before* you click it.**
+**The multi-chain token screener that tells you if a token is a rug *before* you click it.**
 
 DexScreener shows you charts. On the Scope shows you charts **plus a safety score on every single row** — mint/freeze authority, LP lock, real holder concentration, dev wallet and bundle/sniper detection — so you can filter the trenches down to tokens that aren't obvious traps.
 
-> **Why the name?** "The trenches" is what Solana memecoin traders call the low-cap, high-risk market. Putting a token *on the scope* means looking at it through the crosshair before you jump in. (Formerly TrenchScope; the repo and Render service keep the old name.)
+> **Why the name?** "The trenches" is what memecoin traders call the low-cap, high-risk market across Solana, Base, Ethereum, BNB Chain and 30+ chains. Putting a token *on the scope* means looking at it through the crosshair before you jump in. (Formerly TrenchScope; the repo and Render service keep the old name.)
 
 ![desktop](docs/desktop.png)
 
@@ -98,7 +98,7 @@ When a coin pumps, vamps relaunch the same name/ticker. On the Scope finds every
 - **Candidates:** DexScreener search by name and by ticker, then *all* pairs of every candidate via `/tokens/v1`.
 - **Graduation time:** earliest Raydium or PumpSwap pair (`pairCreatedAt`) — where pump.fun coins migrate when the curve completes. Earliest graduate = OG.
 - Only migrated tokens are tagged: anything still on the pump.fun bonding curve (no PumpSwap/Raydium pair) gets no OG/VAMP tag.
-- **VV (Valid Vamp):** a VAMP whose smoothed market cap (median of ≥3 samples over 4h, spanning ≥1h) is ≥5x the OG's and that is ≥24h old gets a green/gold **VV** chip (“Valid Vamp: flipped the OG 5x+”); the OG page shows “Flipped by …”. Dynamic — lost when it falls back under 5x. Mcap samples come from list refreshes and a 10-min background sampler.
+- **VV (Valid Vamp):** a VAMP whose smoothed market cap (median of ≥3 samples over 4h, spanning ≥1h) is ≥3x the OG's and that is ≥24h old gets a green/gold **VV** chip (“Valid Vamp: flipped the OG 3x+”); the OG page shows “Flipped by …”. Dynamic — lost when it falls back under 3x. Mcap samples come from list refreshes and a 10-min background sampler.
 - Results are cached persistently in `data/og-cache.json` (6h TTL) and computed in a background queue.
 - Real example (verified 16 Oct 2026): trending **FTR “Flying Tesla Roadster”** (`DFMt…pump`, PumpSwap 14 Oct) is marked **Vamp of FTR `3w5c…`**, which had a Raydium pair since 14 Aug 2026.
 

@@ -225,7 +225,7 @@ function alertsTab() {
       <div class="al-row">${sw('moves', p.moves, 'Big watchlist moves', `${nW} token${nW === 1 ? '' : 's'} on your watchlist`)}
         <select id="movePct" aria-label="Move size">${[5, 10, 20, 30, 50].map(v => `<option value="${v}" ${+p.movePct === v ? 'selected' : ''}>±${v}%</option>`).join('')}</select></div>
       ${sw('wallets', p.wallets, 'Tracked wallet buys & sells', `${nWal} wallet${nWal === 1 ? '' : 's'} · add them in the Wallets tab`)}
-      ${sw('vv', p.vv, 'Valid Vamp gained / lost', 'When a watchlist vamp flips its OG 5x — or falls back')}
+      ${sw('vv', p.vv, 'Valid Vamp gained / lost', 'When a watchlist vamp flips its OG 3x — or falls back')}
       ${sw('og', p.og, 'New OG migrations', 'Every fresh “first of its name” graduation (can be busy)')}
       <div class="al-foot"><button class="btn" id="alTest" ${pushOn || tg.linked ? '' : 'disabled'}>Send a test alert</button><small class="dim">Checked about every minute · max 40 alerts/hour · not financial advice</small></div>
     </div>`;
