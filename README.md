@@ -140,7 +140,6 @@ Push the repo, then **New → Blueprint** in Render and select it — `render.ya
 - Gainers are computed over the tracked universe (trending + new + boosted), not every Solana pair.
 - Pump.fun's frontend API is unofficial and may change or block datacenter IPs.
 - Free public APIs rate-limit; on a busy instance safety badges may take a minute to fill in.
-- Alerts only fire while an On the Scope tab is open (no push server).
 - OG detection only sees tokens DexScreener search returns (~30 pairs per query); very common names may miss older tokens. Raydium pairs are treated as graduations even for tokens launched directly on Raydium. pump.fun's search API ignores the search term from servers, so it isn't used.
 - **Render free has no persistent disk:** `data/orders.json` and the OG cache are wiped on redeploy/restart. For real sales, attach a Render disk (paid) or point `ORDERS_FILE` to persistent storage, and back up orders. On-chain payments themselves are never lost — an order can be re-verified from its reference.
 - Scoped assets are submitted as https URLs (no file upload/hosting); rejected-order refunds are manual.

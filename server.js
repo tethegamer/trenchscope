@@ -527,12 +527,18 @@ app.get('/api/search', async (req, res) => {
   try {
     const d = await cached('search:' + q.toLowerCase(), 60e3, () => getJSON(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q)}`, { prio: PRIO.high }));
     const m = new Map();
-    for (const p of d.pairs || []) if (p.chainId === 'solana' && !SKIP.has(p.baseToken.address)) {
-      const c = m.get(p.baseToken.address); if (!c || (p.liquidity?.usd || 0) > (c.liquidity?.usd || 0)) m.set(p.baseToken.address, p);
+    for (const p of d.pairs || []) if ((p.chainId === 'solana' || chains.byId[p.chainId]) && !SKIP.has(p.baseToken.address)) {
+      const k = p.chainId + ':' + p.baseToken.address;
+      const c = m.get(k); if (!c || (p.liquidity?.usd || 0) > (c.liquidity?.usd || 0)) m.set(k, p);
     }
-    const rows = [...m.values()].map(fromDex).slice(0, 20);
-    enqueue(rows.map(r => r.mint)); enqueueOG(rows);
-    ok(res, { rows: rows.map(r => withIntel(r)) }, 30);
+    let rows = [...m.values()].map(fromDex).sort((a, b) => (a.chain === 'solana' ? 0 : 1) - (b.chain === 'solana' ? 0 : 1) || (b.liquidity || 0) - (a.liquidity || 0)).slice(0, 20);
+    if (!rows.length && isMint(q)) {
+      const live = LIVE.recent(200).find(r => r.mint === q);
+      if (live) rows = [{ ...live, uri: undefined, sig: undefined }];
+    }
+    const sol = rows.filter(r => !r.chain || r.chain === 'solana');
+    enqueue(sol.map(r => r.mint)); enqueueOG(sol);
+    ok(res, { rows: rows.map(r => (!r.chain || r.chain === 'solana') ? withIntel(r) : { ...r, safety: null, og: null, promo: 0, scope: false, score: peekScore(r.chain, r.mint) }) }, 30);
   } catch (e) { fail(res, e); }
 });
 const isAddr = s => /^[A-Za-z0-9:._\-]{3,160}$/.test(s || '');

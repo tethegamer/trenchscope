@@ -36,14 +36,45 @@ function age(ts) {
 }
 const short = a => a ? a.slice(0, 4) + '…' + a.slice(-4) : '';
 const icon = (r, cls = 'ico') => { const u = safeUrl(r.icon); return u ? `<img class="${cls}" src="${esc(u)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;${cls}&quot;>${esc((r.symbol || '?').slice(0, 2).replace(/[^\\w]/g, ''))}</div>'">` : `<div class="${cls}">${esc((r.symbol || '?').slice(0, 2))}</div>`; };
-const links = (mint, pair) => ({
+const links = mint => ({
   jup: `https://jup.ag/swap/SOL-${mint}`,
   safesign: `https://safesign-pg8h.onrender.com/?address=${mint}`,
-  dex: `https://dexscreener.com/solana/${pair || mint}`,
   solscan: `https://solscan.io/token/${mint}`,
   rug: `https://rugcheck.xyz/tokens/${mint}`,
   pump: `https://pump.fun/coin/${mint}`,
 });
+const EXPLORERS = {
+  solana: ['Solscan', 'https://solscan.io', 'token', 'account', 'tx'],
+  ethereum: ['Etherscan', 'https://etherscan.io', 'token', 'address', 'tx'],
+  base: ['Basescan', 'https://basescan.org', 'token', 'address', 'tx'],
+  bsc: ['BscScan', 'https://bscscan.com', 'token', 'address', 'tx'],
+  arbitrum: ['Arbiscan', 'https://arbiscan.io', 'token', 'address', 'tx'],
+  optimism: ['Optimism Explorer', 'https://optimistic.etherscan.io', 'token', 'address', 'tx'],
+  polygon: ['Polygonscan', 'https://polygonscan.com', 'token', 'address', 'tx'],
+  avalanche: ['Snowtrace', 'https://snowtrace.io', 'token', 'address', 'tx'],
+  sonic: ['SonicScan', 'https://sonicscan.org', 'token', 'address', 'tx'],
+  linea: ['Lineascan', 'https://lineascan.build', 'token', 'address', 'tx'],
+  zksync: ['zkSync Explorer', 'https://explorer.zksync.io', 'address', 'address', 'tx'],
+  cronos: ['Cronoscan', 'https://cronoscan.com', 'token', 'address', 'tx'],
+  ink: ['Ink Explorer', 'https://explorer.inkonchain.com', 'token', 'address', 'tx'],
+  abstract: ['Abscan', 'https://abscan.org', 'token', 'address', 'tx'],
+  worldchain: ['Worldscan', 'https://worldscan.org', 'token', 'address', 'tx'],
+  hyperevm: ['Purrsec', 'https://purrsec.com', 'address', 'address', 'tx'],
+  sui: ['Suiscan', 'https://suiscan.xyz/mainnet', 'coin', 'account', 'tx'],
+  ton: ['Tonviewer', 'https://tonviewer.com', '', '', 'transaction'],
+  tron: ['Tronscan', 'https://tronscan.org/#', 'token20', 'address', 'transaction'],
+  near: ['NearBlocks', 'https://nearblocks.io', 'token', 'address', 'txns'],
+  starknet: ['Starkscan', 'https://starkscan.co', 'token', 'contract', 'tx'],
+};
+function explorer(chain, kind, id) {
+  if (!id) return null;
+  const e = EXPLORERS[chain || 'solana'];
+  if (!e) return null;
+  const [name, base, tk, acc, tx] = e;
+  const seg = kind === 'token' ? tk : kind === 'tx' ? tx : acc;
+  return { name, url: seg ? `${base}/${seg}/${encodeURIComponent(id)}` : `${base}/${encodeURIComponent(id)}` };
+}
+const caBtn = (m, s) => m ? `<button type="button" class="ca-copy mono" data-ca="${esc(m)}" data-sym="${esc(s || '')}" data-stop title="Copy contract address (${esc(m)})">${esc(short(m))} 📋</button>` : '';
 
 // ---------- safety badge ----------
 function badge(s, big) {
@@ -165,11 +196,12 @@ function route() {
   cleanup.forEach(f => f()); cleanup = [];
   $('#results').hidden = true; $('#drawer').hidden = true;
   const mc = location.pathname.match(/^\/token\/([a-z0-9-]+)\/([^/]+)$/);
-  const m = location.pathname.match(/^\/token\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
+  const m = !mc && location.pathname.match(/^\/token\/([^/]+)$/);
+  const qChain = new URLSearchParams(location.search).get('chain');
   window.scrollTo(0, 0);
   const o = location.pathname.match(/^\/order\/([a-f0-9]{20})$/);
   $('#profileBtn')?.classList.toggle('on', location.pathname === '/profile');
-  if (mc) tokenPage(decodeURIComponent(mc[2]), mc[1]); else if (m) tokenPage(m[1]); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else if (location.pathname === '/callers') callersPage(); else if (location.pathname === '/profile') openProfile(); else listPage();
+  if (mc) tokenPage(decodeURIComponent(mc[2]), mc[1]); else if (m) tokenPage(decodeURIComponent(m[1]), qChain || 'solana'); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else if (location.pathname === '/callers') callersPage(); else if (location.pathname === '/profile') openProfile(); else listPage();
 }
 
 // ---------- profile (lazy-loaded module) ----------
@@ -240,11 +272,13 @@ function filtered() {
   if (st.mcapMin) r = r.filter(x => n(x.mcap || x.fdv) >= st.mcapMin);
   if (st.mcapMax) r = r.filter(x => n(x.mcap || x.fdv) <= st.mcapMax);
   if (st.age) r = r.filter(x => x.createdAt && Date.now() - x.createdAt <= st.age * 3600e3);
-  if (st.safeOnly) r = r.filter(x => x.safety && !x.safety.unavailable && x.safety.grade === 'safe');
-  if (st.noBundle) r = r.filter(x => !(x.safety && x.safety.bundled));
-  if (st.ogOnly) r = r.filter(x => x.og && x.og.status === 'og');
-  if (st.vvOnly) r = r.filter(x => x.og && x.og.vv);
-  if (st.smartOnly) r = r.filter(x => smMap[x.mint]);
+  if (st.chain === 'solana') {
+    if (st.safeOnly) r = r.filter(x => x.safety && !x.safety.unavailable && x.safety.grade === 'safe');
+    if (st.noBundle) r = r.filter(x => !(x.safety && x.safety.bundled));
+    if (st.ogOnly) r = r.filter(x => x.og && x.og.status === 'og');
+    if (st.vvOnly) r = r.filter(x => x.og && x.og.vv);
+    if (st.smartOnly) r = r.filter(x => smMap[x.mint]);
+  }
   if (st.sort) {
     const get = { price: x => x.priceUsd, age: x => -(x.createdAt || 0), m5: x => x.change?.m5, h1: x => x.change?.h1, h6: x => x.change?.h6, h24: x => x.change?.h24, vol: x => x.volume?.h24, liq: x => x.liquidity, mcap: x => x.mcap || x.fdv, txns: x => (x.txns?.h24?.buys || 0) + (x.txns?.h24?.sells || 0), safety: x => x.safety?.score ?? -1 }[st.sort];
     if (get) r.sort((a, b) => ((get(a) ?? -Infinity) - (get(b) ?? -Infinity)) * st.dir);
@@ -254,17 +288,24 @@ function filtered() {
 const sel = (key, label, opts) => `<label class="f">${label}<select data-k="${key}">${opts.map(([v, t]) => `<option value="${v}" ${+st[key] === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`;
 const tog = (key, label) => `<button class="toggle ${st[key] ? 'on' : ''}" data-t="${key}"><span class="sw"></span>${label}</button>`;
 
+function tabDesc(tab, ch) {
+  if (ch === 'solana') return tab.desc;
+  const cn = esc(chainOf(ch).name);
+  if (tab.id === 'trending') return `Hottest ${cn} pairs right now — real-time price action, liquidity, volume and pool depth.`;
+  if (tab.id === 'new') return `Freshly created ${cn} DEX pools streamed in real time, newest first.`;
+  return tab.desc;
+}
 function listPage() {
   document.title = 'On the Scope — Solana screener with safety on every row';
   if (st.tab === 'callers' || (st.chain !== 'solana' && !['trending', 'new', 'gainers'].includes(st.tab))) st.tab = 'trending';
   const tab = TABS.find(t => t.id === st.tab) || TABS[0];
   renderChainBtn();
   app.innerHTML = `
-  <section class="hero"><div><h1>${tab.label.replace(/<[^>]+>/g, '')} <span class="mut" style="font-weight:500">on ${esc(chainOf(st.chain).name)}</span></h1><p>${tab.desc}</p></div>
+  <section class="hero"><div><h1>${tab.label.replace(/<[^>]+>/g, '')} <span class="mut" style="font-weight:500">on ${esc(chainOf(st.chain).name)}</span></h1><p>${tabDesc(tab, st.chain)}</p></div>
   <div class="stats" id="stats"></div></section>
   <nav class="tabs">${TABS.filter(t => st.chain === 'solana' || ['trending', 'new', 'gainers'].includes(t.id)).map(t => `<button class="tab ${t.id === st.tab ? 'on' : ''}" data-tab="${t.id}">${t.label}${t.id === 'watch' ? ` <span class="chip">${Object.keys(watch).length}</span>` : ''}</button>`).join('')}</nav>
   <div class="bar"><div class="filters">
-    ${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${tog('vvOnly', 'VV only')}${glossLink}${tog('smartOnly', '🧠 Smart money')}${tog('noBundle', 'Hide bundled')}
+    ${st.chain === 'solana' ? `${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${tog('vvOnly', 'VV only')}${glossLink}${tog('smartOnly', '🧠 Smart money')}${tog('noBundle', 'Hide bundled')}` : ''}
     ${sel('liq', 'Liq ≥', [[0, 'Any'], [5000, '$5K'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [500000, '$500K']])}
     ${sel('vol', 'Vol 24h ≥', [[0, 'Any'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [1000000, '$1M']])}
     ${sel('mcapMin', 'MCap ≥', [[0, 'Any'], [10000, '$10K'], [100000, '$100K'], [1000000, '$1M'], [10000000, '$10M']])}
@@ -367,19 +408,19 @@ function draw() {
   const scanned = rows.filter(x => safetyMap[x.mint] && !safetyMap[x.mint].unavailable);
   const safeN = scanned.filter(x => safetyMap[x.mint].grade === 'safe').length;
   const bund = scanned.filter(x => safetyMap[x.mint].bundled).length;
-  $('#stats').innerHTML = rows.length ? `<div class="stat"><small>Pairs</small><b>${rows.length}</b></div><div class="stat"><small>Scanned</small><b>${scanned.length}</b></div><div class="stat"><small>Safe ≥80</small><b class="up">${safeN}</b></div><div class="stat"><small>Bundled</small><b class="dn">${bund}</b></div>` : '';
+  $('#stats').innerHTML = rows.length ? (st.chain === 'solana' ? `<div class="stat"><small>Pairs</small><b>${rows.length}</b></div><div class="stat"><small>Scanned</small><b>${scanned.length}</b></div><div class="stat"><small>Safe ≥80</small><b class="up">${safeN}</b></div><div class="stat"><small>Bundled</small><b class="dn">${bund}</b></div>` : `<div class="stat"><small>Pairs</small><b>${rows.length}</b></div><div class="stat"><small>Volume 24h</small><b>${usd(rows.reduce((s, x) => s + (x.volume?.h24 || 0), 0))}</b></div><div class="stat"><small>Liquidity</small><b>${usd(rows.reduce((s, x) => s + (x.liquidity || 0), 0))}</b></div>`) : '';
   if (st.tab === 'new' && LIVE.on) { renderLive(r.length); } else $('#upd').innerHTML = lastUpdated ? `<span class="live"></span> ${r.length} shown · updated ${age(lastUpdated)} ago · auto-refresh 30s` : '';
   if (!r.length) {
-    const msg = st.smartOnly && !Object.keys(smMap).length ? 'No smart-money buys tracked in the last 24h yet — the tracker checks 20 public KOL wallets + your wallets every minute or so.' : st.tab === 'watch' && !Object.keys(watch).length ? 'Your watchlist is empty. Tap ☆ on any token to track it here.' : st.safeOnly && scanned.length < rows.length ? 'No tokens pass the filters yet — safety scans are still running, give it a few seconds.' : 'No tokens match these filters.';
+    const msg = st.smartOnly && !Object.keys(smMap).length ? 'No smart-money buys tracked in the last 24h yet — the tracker checks 123 public caller & KOL wallets + your wallets every minute or so.' : st.tab === 'watch' && !Object.keys(watch).length ? 'Your watchlist is empty. Tap ☆ on any token to track it here.' : st.safeOnly && scanned.length < rows.length ? 'No tokens pass the filters yet — safety scans are still running, give it a few seconds.' : 'No tokens match these filters.';
     tb.innerHTML = `<tr><td colspan="14" class="empty">${msg}</td></tr>`; $('#cards').innerHTML = `<div class="empty">${msg}</div>`; return;
   }
   const isNew = x => x.createdAt && Date.now() - x.createdAt < 86400e3;
   tb.innerHTML = r.slice(0, 200).map((x, i) => {
     const b = x.txns?.h24?.buys, s = x.txns?.h24?.sells, tot = (b || 0) + (s || 0);
-    const L = links(x.mint, x.pair);
+    const L = links(x.mint);
     return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class="${x.promo ? 'promoted' : ''}${fresh(x) ? ' slide' : ''}">
       <td class="l"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}" title="Watchlist">${isWatched(x.mint) ? '★' : '☆'}</button></td>
-      <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''}</span></div></div></td>
+      <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''} · ${caBtn(x.mint, x.symbol)}</span></div></div></td>
       <td class="l"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span></td>
       <td class="mono">${price(x.priceUsd)}</td><td class="mut">${age(x.createdAt)}</td>
       <td>${tot ? `<div class="txbar"><span>${tot.toLocaleString()}</span><span class="b"><i style="width:${(b / tot * 100).toFixed(0)}%"></i></span></div>` : '<span class="dim">—</span>'}</td>
@@ -388,7 +429,7 @@ function draw() {
       <td>${x.chain && x.chain !== 'solana' ? '' : `<a class="buy" href="${L.jup}" target="_blank" rel="noopener" data-stop>Buy</a>`}</td></tr>`;
   }).join('');
   $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c${fresh(x) ? ' slide' : ''}" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
-      <div class="tok" style="grid-column:1/3">${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)}</span></div></div>
+      <div class="tok" style="grid-column:1/3">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)} · ${caBtn(x.mint, x.symbol)}</span></div></div>
       <div class="pr"><b class="mono">${price(x.priceUsd)}</b>${pct(x.change?.h24 ?? x.change?.h1)}</div>
       <div class="sf"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button>${x.chain && x.chain !== 'solana' ? '' : `<a class="buy" href="${links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>Buy</a>`}</span></div>
       <div class="meta"><span>Liq <b>${usd(x.liquidity)}</b></span><span>Vol <b>${usd(x.volume?.h24)}</b></span><span>MCap <b>${usd(x.mcap || x.fdv)}</b></span><span>1h ${pct(x.change?.h1)}</span></div></div>`).join('');
@@ -409,8 +450,11 @@ $('#q').addEventListener('input', e => {
     box.hidden = false; box.innerHTML = '<div class="mut" style="padding:10px">Searching…</div>';
     try {
       const { rows } = await api('/api/search?q=' + encodeURIComponent(q));
-      const direct = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q) && !rows.some(r => r.mint === q) ? `<a href="/token/${q}" data-link><div class="ico">↗</div><div><b>Open mint</b><div class="dim mono" style="font-size:11px">${esc(short(q))}</div></div></a>` : '';
-      box.innerHTML = direct + (rows.length ? rows.map(r => `<a href="/token/${r.mint}" data-link>${icon(r)}<div><b>${esc(r.symbol)}</b> <span class="mut">${esc(r.name)}</span><div class="dim" style="font-size:11px">${esc(r.dex)} · ${age(r.createdAt)}</div></div><div class="rmeta"><div class="mono" style="color:var(--tx)">${price(r.priceUsd)}</div>Liq ${usd(r.liquidity)}</div></a>`).join('') : (direct ? '' : '<div class="mut" style="padding:10px">No Solana pairs found.</div>'));
+      const directSol = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q) && !rows.some(r => r.mint === q) ? `<a href="/token/${q}" data-link><div class="ico">↗</div><div><b>Open Solana mint</b><div class="dim mono" style="font-size:11px">${esc(short(q))}</div></div></a>` : '';
+      const evmCh = st.chain !== 'solana' && st.chain !== 'all' ? st.chain : 'ethereum';
+      const directEvm = /^0x[a-fA-F0-9]{40}$/.test(q) && !rows.some(r => r.mint.toLowerCase() === q.toLowerCase()) ? `<a href="/token/${evmCh}/${q}" data-link><div class="ico">↗</div><div><b>Open on ${esc(chainOf(evmCh).name)}</b><div class="dim mono" style="font-size:11px">${esc(short(q))}</div></div></a>` : '';
+      const direct = directSol + directEvm;
+      box.innerHTML = direct + (rows.length ? rows.map(r => `<a href="${esc(tokenHref(r))}" data-link>${icon(r)}<div><b>${r.chain && r.chain !== 'solana' ? chainDot(r.chain) + ' ' : ''}${esc(r.symbol)}</b> <span class="mut">${esc(r.name)}</span><div class="dim" style="font-size:11px">${esc(r.dex || chainOf(r.chain || 'solana').name)} · ${age(r.createdAt)}</div></div><div class="rmeta"><div class="mono" style="color:var(--tx)">${price(r.priceUsd)}</div>Liq ${usd(r.liquidity)}</div></a>`).join('') : (direct ? '' : '<div class="mut" style="padding:10px">No matching pairs found.</div>'));
       sSel = -1;
     } catch (err) { box.innerHTML = `<div class="err" style="padding:10px">${esc(err.message)}</div>`; }
   }, 280);
@@ -420,9 +464,35 @@ $('#q').addEventListener('keydown', e => {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sSel = Math.max(0, Math.min(items.length - 1, sSel + (e.key === 'ArrowDown' ? 1 : -1))); items.forEach((a, i) => a.classList.toggle('sel', i === sSel)); }
   if (e.key === 'Escape') { $('#results').hidden = true; e.target.blur(); }
 });
-$('#searchForm').onsubmit = e => { e.preventDefault(); const items = [...$('#results').querySelectorAll('a')]; const a = items[Math.max(0, sSel)]; if (a) { go(a.getAttribute('href')); $('#q').value = ''; $('#q').blur(); } };
-document.addEventListener('keydown', e => { if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#q').focus(); } });
-document.addEventListener('click', e => { if (!$('#searchForm').contains(e.target)) $('#results').hidden = true; else if (e.target.closest('#results a')) { $('#q').value = ''; } });
+$('#searchForm').onsubmit = e => {
+  e.preventDefault();
+  const items = [...$('#results').querySelectorAll('a')];
+  const a = items[Math.max(0, sSel)];
+  if (a) { go(a.getAttribute('href')); $('#q').value = ''; $('#q').blur(); return; }
+  const q = $('#q').value.trim();
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q)) { go('/token/' + q); $('#q').value = ''; $('#q').blur(); }
+};
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) && !document.activeElement?.isContentEditable) { e.preventDefault(); $('#q').focus(); }
+  if (e.key === 'Escape') {
+    $('#gloss')?.remove(); $('#csheet')?.remove(); $('#pnlModal')?.remove(); $('#iosSheet')?.remove();
+    if (!$('#drawer').hidden) $('#drawer').hidden = true;
+    if (!$('#results').hidden) $('#results').hidden = true;
+  }
+});
+document.addEventListener('click', e => {
+  const cp = e.target.closest('[data-ca]');
+  if (cp) {
+    e.preventDefault(); e.stopPropagation();
+    const ca = cp.dataset.ca, sym = cp.dataset.sym;
+    navigator.clipboard?.writeText(ca);
+    const orig = cp.innerHTML; cp.textContent = '✓ Copied';
+    setTimeout(() => { if (cp.isConnected) cp.innerHTML = orig; }, 1200);
+    toast(`📋 Copied CA${sym ? ' · <b>' + esc(sym) + '</b>' : ''} <span class="mono dim">${esc(short(ca))}</span>`);
+    return;
+  }
+  if (!$('#searchForm').contains(e.target)) $('#results').hidden = true; else if (e.target.closest('#results a')) { $('#q').value = ''; }
+});
 
 // ---------- token page ----------
 let CUR_CHAIN = 'solana', CUR_MINT = '';
@@ -431,7 +501,7 @@ async function tokenPage(mint, chain = 'solana') {
   app.innerHTML = `<div class="tp-head"><div class="ico"></div><div style="flex:1"><div class="skel" style="width:200px;height:22px"></div><div class="skel" style="width:300px;margin-top:8px"></div></div></div><div class="kpis">${'<div class="kpi"><div class="skel"></div></div>'.repeat(4)}</div><div class="card" style="height:430px"></div>`;
   let d;
   try { d = await api('/api/token/' + encodeURIComponent(mint) + cq); } catch (e) { app.innerHTML = `<div class="err">Couldn't load token: ${esc(e.message)}</div><p style="text-align:center"><a href="/" data-link class="btn">← Back to screener</a></p>`; return; }
-  const m = d.main || {}; const s = d.safety || {}; const L = links(mint, m.pair);
+  const m = d.main || {}; const s = d.safety || {}; const L = links(mint); const exp = explorer(chain, 'token', mint);
   document.title = `${d.symbol || short(mint)} ${m.priceUsd ? '· ' + price(m.priceUsd).replace(/<[^>]+>/g, '') : ''} — On the Scope`;
   const sv = !s.unavailable;
   const ringC = !sv ? 'var(--dim)' : s.grade === 'safe' ? 'var(--g)' : s.grade === 'caution' ? 'var(--y)' : 'var(--r)';
@@ -451,12 +521,13 @@ async function tokenPage(mint, chain = 'solana') {
   ${sc ? `<div class="card scopecard"><div class="mut" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${SCOPE_ICO} Project info · submitted by the team, reviewed by On the Scope</div><p style="margin:0 0 8px;white-space:pre-wrap">${esc(sc.description)}</p>${scLinks.map(([l, u]) => `<a class="chip" href="${esc(u)}" target="_blank" rel="noopener nofollow">${l} ↗</a>`).join(' ')}</div>` : ''}
   <div class="actions">
     ${isSol ? `<a class="btn pri" id="buyBtn" href="${L.jup}" target="_blank" rel="noopener">⚡ Buy</a>
-    <a class="btn ss" href="${L.safesign}" target="_blank" rel="noopener">🛡 Deep scan on SafeSign</a>
-    <button class="btn" id="wbtn">${isWatched(mint) ? '★ Watching' : '☆ Watchlist'}</button>` : `<span class="chip">${chainDot(chain)} ${esc(chainOf(chain).name)}</span>`}
+    <a class="btn ss" href="${L.safesign}" target="_blank" rel="noopener">🛡 Deep scan on SafeSign</a>` : `<span class="chip">${chainDot(chain)} ${esc(chainOf(chain).name)}</span>`}
+    <button class="btn" id="wbtn">${isWatched(mint) ? '★ Watching' : '☆ Watchlist'}</button>
     ${isSol ? `<a class="btn" href="${L.solscan}" target="_blank" rel="noopener">Solscan ↗</a>
-    <a class="btn" href="${L.rug}" target="_blank" rel="noopener">RugCheck ↗</a>` : ''}
+    <a class="btn" href="${L.rug}" target="_blank" rel="noopener">RugCheck ↗</a>` : (exp ? `<a class="btn" href="${esc(exp.url)}" target="_blank" rel="noopener">${esc(exp.name)} ↗</a>` : '')}
     ${d.pump ? `<a class="btn" href="${L.pump}" target="_blank" rel="noopener">pump.fun ↗</a>` : ''}
-    ${isSol ? '' : '<!--'}<a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get Scoped / Boost'}</a>${isSol ? '' : '-->'}
+    <button class="btn" id="shareBtn" type="button">🔗 Share</button>
+    ${isSol ? `<a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get Scoped / Boost'}</a>` : ''}
   </div>
   ${isSol ? '<div class="smstrip" id="smStrip"></div>' : ''}
   <div class="card scorecard" id="scoreCard">${scoreSkel}</div>
@@ -474,7 +545,7 @@ async function tokenPage(mint, chain = 'solana') {
       <div class="card chartcard"><div class="chart-top">${['1m', '5m', '15m', '1h', '4h', '1d'].map(t => `<button class="tf" data-tf="${t}">${t}</button>`).join('')}<span class="dim" id="chartSrc" style="margin-left:auto;font-size:12px">${m.pair ? 'GeckoTerminal OHLCV · USD' : ''}</span></div><div id="chart">${m.pair ? '' : '<div class="empty">No trading pair found yet.</div>'}</div>
         <div class="chg-row">${['m5', 'h1', 'h6', 'h24'].map(k => `<div><small>${k.replace('m', '').replace('h', '')}${k[0]}</small>${pct(m.change?.[k])}</div>`).join('')}</div></div>
       <div class="card trades"><h3>Recent trades <span class="r" id="trUpd"></span></h3><div class="scroll" id="trades"><div class="skel"></div></div></div>
-      ${d.pairs?.length > 1 ? `<div class="card"><h3>Pools</h3><div class="scroll"><table style="min-width:520px"><thead><tr><th class="l">DEX</th><th class="l">Pair</th><th>Price</th><th>Liquidity</th><th>Vol 24h</th></tr></thead><tbody>${d.pairs.map(p => `<tr onclick="window.open('${links(mint, p.pair).dex}','_blank')"><td class="l">${esc(p.dex)}</td><td class="l mono dim">${esc(short(p.pair))} · ${esc(p.quote)}</td><td class="mono">${price(p.priceUsd)}</td><td>${usd(p.liquidity)}</td><td>${usd(p.volume?.h24)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+      ${d.pairs?.length > 1 ? `<div class="card"><h3>Pools <span class="r">click to switch chart &amp; trades</span></h3><div class="scroll"><table style="min-width:520px"><thead><tr><th class="l">DEX</th><th class="l">Pair</th><th>Price</th><th>Liquidity</th><th>Vol 24h</th><th></th></tr></thead><tbody>${d.pairs.map(p => { const pe = explorer(chain, 'account', p.pair); return `<tr class="pool-row ${p.pair === m.pair ? 'on' : ''}" data-pool="${esc(p.pair)}" data-price="${p.priceUsd || ''}"><td class="l">${esc(p.dex)}</td><td class="l mono dim">${esc(short(p.pair))} · ${esc(p.quote)}</td><td class="mono">${price(p.priceUsd)}</td><td>${usd(p.liquidity)}</td><td>${usd(p.volume?.h24)}</td><td>${pe ? `<a class="dim" href="${esc(pe.url)}" target="_blank" rel="noopener" data-stop title="View pool on ${esc(pe.name)}">↗</a>` : ''}</td></tr>`; }).join('')}</tbody></table></div></div>` : ''}
     </div>
     ${isSol ? `    <div class="stack">
       <div class="card"><h3>🛡 Safety <span class="r">RugCheck + GoPlus</span></h3>
@@ -507,6 +578,12 @@ async function tokenPage(mint, chain = 'solana') {
   $('#pbig').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#pbig').click(); } };
   app.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = 'Copied ✓'; setTimeout(() => (b.textContent = 'Copy CA'), 1500); });
   if ($('#wbtn')) $('#wbtn').onclick = () => { toggleWatch({ mint, symbol: d.symbol, icon: d.icon }); $('#wbtn').textContent = isWatched(mint) ? '★ Watching' : '☆ Watchlist'; };
+  if ($('#shareBtn')) $('#shareBtn').onclick = async () => {
+    const url = location.origin + (isSol ? `/token/${mint}` : `/token/${chain}/${encodeURIComponent(mint)}`);
+    if (navigator.share) { try { await navigator.share({ title: `${d.symbol || short(mint)} — On the Scope`, url }); return; } catch {} }
+    navigator.clipboard?.writeText(url);
+    toast(`🔗 Copied token link · <b>${esc(d.symbol || short(mint))}</b>`);
+  };
   const drawMy = () => { const mine = alerts.filter(a => a.mint === mint); $('#myAlerts').innerHTML = mine.map(a => `<div class="al"><span class="mut">${a.dir}</span><span class="mono">${price(a.price)}</span><button class="x" data-del="${a.id}">✕</button></div>`).join(''); $('#myAlerts').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { alerts = alerts.filter(a => a.id != b.dataset.del); LS.set('alerts', alerts); renderAlertCount(); drawMy(); }); };
   if ($('#myAlerts')) drawMy();
   if ($('#alertForm')) $('#alertForm').onsubmit = e => {
@@ -518,10 +595,21 @@ async function tokenPage(mint, chain = 'solana') {
   loadScore(mint, chain);
   if (isSol) setupBuy(mint, d.symbol);
   if (isSol) { loadSmartToken(mint); const smi = setInterval(() => loadSmartToken(mint), 30000); cleanup.push(() => clearInterval(smi)); }
-  if (m.pair) {
-    initChart(m.pair, m.priceUsd);
-    loadTrades(m.pair, d.symbol); const iv = setInterval(() => loadTrades(m.pair, d.symbol), 20000); cleanup.push(() => clearInterval(iv));
-  } else $('#trades').innerHTML = '<div class="mut">No pool yet.</div>';
+  let curPool = m.pair, trIv = 0;
+  const startPool = (pool, px) => {
+    curPool = pool; clearInterval(trIv);
+    $('#chart').innerHTML = '';
+    initChart(pool, px || m.priceUsd);
+    loadTrades(pool, d.symbol); trIv = setInterval(() => loadTrades(curPool, d.symbol), 20000);
+  };
+  cleanup.push(() => clearInterval(trIv));
+  if (m.pair) startPool(m.pair, m.priceUsd); else $('#trades').innerHTML = '<div class="mut">No pool yet.</div>';
+  app.querySelectorAll('.pool-row').forEach(tr => tr.onclick = e => {
+    if (e.target.closest('[data-stop]')) return;
+    app.querySelectorAll('.pool-row').forEach(r => r.classList.toggle('on', r === tr));
+    startPool(tr.dataset.pool, +tr.dataset.price || m.priceUsd);
+    $('#chart')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
 }
 function ogCard(o, sym, flipped) {
   if (!o) return '<div class="mut">Not checked yet (search sources busy) — reload in a minute.</div>';
@@ -569,7 +657,7 @@ let CSTATE = { cat: 'all', sort: 'auto' };
 function callersPage() {
   document.title = 'Top Callers — On the Scope';
   app.innerHTML = `<section class="hero"><div><h1>📣 Top Callers <span class="mut" style="font-weight:500">on pump.fun &amp; Solana</span></h1><p>Live buys from public pump.fun callers and top KOL traders, with their track records.</p></div><div class="stats" id="cstats"></div></section>
-  <nav class="tabs">${TABS.map(t => `<button class="tab ${t.id === 'callers' ? 'on' : ''}" data-tab="${t.id}">${t.label}</button>`).join('')}</nav>
+  <nav class="tabs">${TABS.map(t => `<button class="tab ${t.id === 'callers' ? 'on' : ''}" data-tab="${t.id}">${t.label}${t.id === 'watch' ? ` <span class="chip">${Object.keys(watch).length}</span>` : ''}</button>`).join('')}</nav>
   <div class="card cexplain">${CALLER_EXPLAIN}</div>
   <div class="bar"><div class="filters">${[['all', 'All'], ['caller', '📣 Callers'], ['trader', '🧠 Traders']].map(([k, l]) => `<button class="toggle ${CSTATE.cat === k ? 'on' : ''}" data-cat="${k}">${l}</button>`).join('')}
     <label class="f">Rank by <select id="csort">${[['auto', 'Best record'], ['active', 'Most active (24h)'], ['pnl', 'kolscan 30d PnL'], ['hit', 'pump.fun 2x hit rate']].map(([k, l]) => `<option value="${k}" ${CSTATE.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div><div class="upd" id="cupd"></div></div>
@@ -603,7 +691,7 @@ function drawCallers() {
   const rec = d.recent.filter(inCat);
   $('#crecent').innerHTML = rec.length ? `<div class="cfeed">${rec.slice(0, 40).map(e => `<a class="cbuy" href="/token/${esc(e.mint)}" data-go>
       ${e.icon ? `<img src="${esc(e.icon)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : '<span class="ph"></span>'}
-      <div><div><span class="chip ${e.cat === 'caller' ? 'caller' : 'smart'}">${e.cat === 'caller' ? '📣' : SM_ICO} ${esc(e.label)}</span> bought <b>${esc(e.symbol || short(e.mint))}</b></div>
+      <div><div><span class="chip ${e.cat === 'caller' ? 'caller' : 'smart'}">${e.cat === 'caller' ? '📣' : SM_ICO} ${esc(e.label)}</span> bought <b>${esc(e.symbol || short(e.mint))}</b> ${caBtn(e.mint, e.symbol)}</div>
       <div class="dim">${age(e.at)} ago${e.usd ? ' · ' + usd(e.usd, 0) : e.sol ? ' · ' + e.sol.toFixed(2) + ' SOL' : ''}${e.entryMcap ? ` · entry mcap <b>${usd(e.entryMcap)}</b>` : ''}${e.mcapNow ? ` · now ${usd(e.mcapNow)}` : ''}</div></div>
       ${e.entryMcap && e.mcapNow ? `<span class="${e.mcapNow >= e.entryMcap ? 'up' : 'dn'} mono cx">${(e.mcapNow / e.entryMcap).toFixed(2)}x</span>` : ''}</a>`).join('')}</div>`
     : `<div class="mut">No buys seen yet. ${d.tracked} wallets are being checked in rotation (a full pass takes about ${Math.max(1, Math.round((d.status.rotationSec || 300) / 60))} min), so buys appear here as they land. Buys are kept for 3 days.</div>`;
@@ -630,7 +718,7 @@ async function loadTrades(pool, sym) {
     const el = $('#trades'); if (!el) return;
     $('#trUpd').textContent = 'live · 20s';
     if (CUR_CHAIN === 'solana' && KNOWN.size && rows.some(t => KNOWN.has(t.wallet)) && !$('#smStrip .smcard')) loadSmartToken(CUR_MINT);
-    el.innerHTML = rows.length ? `<table><thead><tr><th class="l">Time</th><th class="l">Type</th><th>USD</th><th>${esc(sym)}</th><th>Price</th><th class="l">Wallet</th></tr></thead><tbody>${rows.slice(0, 25).map(t => `<tr ${CUR_CHAIN === 'solana' ? `onclick="window.open('https://solscan.io/tx/${esc(t.tx)}','_blank')"` : ''}><td class="l dim">${age(Date.parse(t.at))} ago</td><td class="l ${t.kind === 'buy' ? 'up' : 'dn'}" style="font-weight:700">${t.kind === 'buy' ? 'Buy' : 'Sell'}</td><td class="${t.kind === 'buy' ? 'up' : 'dn'}">${usd(t.usd, 2)}</td><td class="mono">${t.tokenAmount != null ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(t.tokenAmount) : '—'}</td><td class="mono">${price(t.price)}</td><td class="l mono"><a style="color:var(--b)" href="https://solscan.io/account/${esc(t.wallet)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${KNOWN.has(t.wallet) ? `<span class="chip ${KNOWN.get(t.wallet).cat === 'caller' ? 'caller' : 'smart'}" title="${KNOWN.get(t.wallet).cat === 'caller' ? 'Public pump.fun caller' : 'Public KOL / top trader wallet'}">${KNOWN.get(t.wallet).cat === 'caller' ? '📣' : SM_ICO} ${esc(KNOWN.get(t.wallet).label)}</span>` : esc(short(t.wallet))}</a></td></tr>`).join('')}</tbody></table>` : '<div class="mut">No recent trades reported.</div>';
+    el.innerHTML = rows.length ? `<table><thead><tr><th class="l">Time</th><th class="l">Type</th><th>USD</th><th>${esc(sym)}</th><th>Price</th><th class="l">Wallet</th></tr></thead><tbody>${rows.slice(0, 25).map(t => { const txE = explorer(CUR_CHAIN, 'tx', t.tx), wE = explorer(CUR_CHAIN, 'account', t.wallet); const wLbl = KNOWN.has(t.wallet) ? `<span class="chip ${KNOWN.get(t.wallet).cat === 'caller' ? 'caller' : 'smart'}" title="${KNOWN.get(t.wallet).cat === 'caller' ? 'Public pump.fun caller' : 'Public KOL / top trader wallet'}">${KNOWN.get(t.wallet).cat === 'caller' ? '📣' : SM_ICO} ${esc(KNOWN.get(t.wallet).label)}</span>` : esc(short(t.wallet)); return `<tr ${txE ? `onclick="window.open('${esc(txE.url)}','_blank')"` : ''}><td class="l dim">${age(Date.parse(t.at))} ago</td><td class="l ${t.kind === 'buy' ? 'up' : 'dn'}" style="font-weight:700">${t.kind === 'buy' ? 'Buy' : 'Sell'}</td><td class="${t.kind === 'buy' ? 'up' : 'dn'}">${usd(t.usd, 2)}</td><td class="mono">${t.tokenAmount != null ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(t.tokenAmount) : '—'}</td><td class="mono">${price(t.price)}</td><td class="l mono">${wE ? `<a style="color:var(--b)" href="${esc(wE.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${wLbl}</a>` : wLbl}</td></tr>`; }).join('')}</tbody></table>` : '<div class="mut">No recent trades reported.</div>';
   } catch (e) { const el = $('#trades'); if (el && !el.querySelector('table')) el.innerHTML = `<div class="mut">Trades unavailable (${esc(e.message)}).</div>`; }
 }
 const candleCache = {};
@@ -684,7 +772,9 @@ function initChart(pool, lastPrice) {
   app.querySelectorAll('[data-tf]').forEach(b => b.onclick = () => { tf = b.dataset.tf; LS.set('tf', tf); load(true); });
   load(true);
   const iv = setInterval(() => load(false), 45000);
-  cleanup.push(() => { clearInterval(iv); chart.remove(); });
+  if (el._chartCleanup) el._chartCleanup();
+  el._chartCleanup = () => { clearInterval(iv); try { chart.remove(); } catch {} };
+  cleanup.push(() => el._chartCleanup?.());
 }
 
 // ---------- advertise ----------
@@ -761,6 +851,8 @@ function glossary(force) {
     <dl class="gl"><dt><span class="chip og">OG</span></dt><dd>The first token with that name to graduate — i.e. migrate from its launchpad to open trading.</dd>
     <dt><span class="chip vamp">VAMP</span></dt><dd>A later launch reusing an OG's name that has also graduated.</dd>
     <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 5x+ the OG's. It can lose the badge if it drops back under 5x.</dd>
+    <dt><span class="chip caller">📣 2</span></dt><dd><b>Top Callers</b>: public pump.fun callers bought this token in the last 24h. See <a href="/callers" data-link style="color:var(--b)">📣 Top Callers</a> for their 2x hit rate and live buy feed.</dd>
+    <dt><span class="chip smart">🧠 3</span></dt><dd><b>Smart money</b>: tracked KOL trader &amp; caller wallets (123 public wallets) bought in the last 24h. <b>👛 You</b> marks your own tracked wallets.</dd>
     <dt>${scopeTag()}</dt><dd><b>Scoped</b>: the team paid for an enhanced profile that On the Scope reviewed. A paid listing, not an endorsement.</dd>
     <dt><span class="chip sscore s-g">${SCOPE_ICO}72</span></dt><dd><b>Scope Score</b> (0–100): 60% <b>coin fairness</b> (insiders, bundles, snipers, dev wallet, top holders, LP, fees → OK / NEUTRAL / SKETCHY / RIGGED) + 40% <b>narrative</b>, a heuristic of website, domain age, socials and GitHub (LIKELY REAL / PARTLY REAL / LIKELY LARP). DYOR.</dd></dl>
     <p class="dim" style="font-size:12px;margin:-6px 0 16px">Tokens that haven't graduated from their launchpad yet get no OG/VAMP tag.</p>
@@ -768,11 +860,11 @@ function glossary(force) {
   const close = () => $('#gloss')?.remove();
   $('#glOk').onclick = () => { sessionStorage.setItem('ts:glossarySeen', '1'); close(); };
   $('#glNo').onclick = () => { LS.set('glossaryOff', true); close(); };
-  $('#gloss').onclick = e => { if (e.target.id === 'gloss') $('#glOk').click(); };
+  $('#gloss').onclick = e => { if (e.target.id === 'gloss' || e.target.closest('a[data-link]')) $('#glOk').click(); };
   $('#glOk').focus();
 }
 document.addEventListener('click', e => { if (e.target.closest('[data-gloss]')) { e.preventDefault(); e.stopPropagation(); glossary(true); } });
-const glossLink = '<a href="#" class="glink" data-gloss data-stop title="What do OG / VAMP / VV mean?">?</a>';
+const glossLink = '<a href="#" class="glink" data-gloss data-stop title="What do OG / VAMP / VV / Caller / Scope Score mean?">?</a>';
 
 route();
 setTimeout(() => glossary(false), 600);

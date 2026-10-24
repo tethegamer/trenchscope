@@ -341,3 +341,8 @@ tr.slide td{animation:slidein .55s ease-out}tr.slide{background:rgba(20,241,149,
 .ctable td.l{white-space:normal;width:40%}.ctable .who .wl a{white-space:nowrap}
 .ctable{min-width:0!important}
 @media (max-width:760px){.tabs{flex-wrap:wrap;overflow-x:visible}}
+
+.ca-copy{background:transparent;border:0;color:var(--dim);font-size:11px;padding:0 3px;border-radius:4px;cursor:pointer;line-height:1.3}
+.ca-copy:hover{color:var(--g);background:rgba(20,241,149,.1)}
+.pool-row.on td{background:rgba(20,241,149,.07)}
+.pool-row.on td:first-child{box-shadow:inset 2px 0 0 var(--g)}

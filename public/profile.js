@@ -153,7 +153,7 @@ export function profilePage(ctx) {
   const wallets = LS.get('wallets', []);
   C.app.innerHTML = `
   <section class="pf-head">
-    <div class="pf-av" style="--h:${hue(name)}">${esc(name.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 2).toUpperCase() || 'TS')}</div>
+    <div class="pf-av" style="--h:${hue(name)}">${esc(name.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 2).toUpperCase() || 'OS')}</div>
     <div class="pf-id"><div class="pf-name"><span id="pfName">${esc(name)}</span><button class="pf-edit" id="pfEdit" title="Edit display name" aria-label="Edit display name">✎</button></div>
       <div class="mut pf-sub">Stored only in this browser · no wallet connection, no signing</div></div>
     <button class="btn xbtn" disabled title="Connect X — coming soon"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M17.75 3h3.07l-6.7 7.66L22 21h-6.17l-4.83-6.32L5.47 21H2.4l7.17-8.2L2 3h6.33l4.37 5.77L17.75 3Zm-1.08 16.17h1.7L7.4 4.74H5.58l11.09 14.43Z"/></svg> Connect X <span class="soon">Coming soon</span></button>
@@ -258,7 +258,7 @@ function walletsTab() {
     <button class="btn pri">+ Track wallet</button>
     <div id="wErr" class="dn pf-err"></div>
   </form>
-  <p class="dim" style="font-size:11.5px;margin:6px 2px 10px">🧠 Tokens your wallets buy get a <b>👛 You</b> tag in the screener, next to <b>🧠 Smart money</b> (20 public KOL wallets). Only the public addresses are sent to our server so it can watch them; nothing to sign, and your labels stay on this device.</p>
+  <p class="dim" style="font-size:11.5px;margin:6px 2px 10px">🧠 Tokens your wallets buy get a <b>👛 You</b> tag in the screener, next to <b>📣 Callers</b> &amp; <b>🧠 Smart money</b> (123 public caller &amp; KOL wallets). Only the public addresses are sent to our server so it can watch them; nothing to sign, and your labels stay on this device.</p>
   <div class="pf-list" id="wList">${wallets.length ? wallets.map(w => { const a = act[w.addr] || {};
     return `<div class="wrow" data-a="${esc(w.addr)}"><div class="wtop">
       <div class="wav" style="--h:${hue(w.addr)}">${esc((w.label || w.addr).slice(0, 2).toUpperCase())}</div>
