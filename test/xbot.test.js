@@ -7,6 +7,8 @@ const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 test('extract CA from text, links and EVM', () => {
   assert.deepEqual(extractCA(`@OnTheScope check ${BONK} pls`), { address: BONK, chain: 'solana' });
   assert.equal(extractCA('', [`https://pump.fun/coin/${BONK}`]).address, BONK);
+  assert.equal(extractCA('', [`https://onthescope.fun/token/${BONK}`]).address, BONK);
+  assert.equal(extractCA('', ['https://onthescope.fun/token/base/0x532f27101965dd16442E59d40670FaF5eBB142E4']).address, '0x532f27101965dd16442E59d40670FaF5eBB142E4');
   const d = extractCA('', ['https://dexscreener.com/base/0x1111111111111111111111111111111111111111']);
   assert.equal(d.chain, 'base'); assert.equal(d.viaPair, true);
   assert.equal(extractCA('ape 0x532f27101965dd16442E59d40670FaF5eBB142E4 now').address, '0x532f27101965dd16442E59d40670FaF5eBB142E4');
@@ -14,7 +16,7 @@ test('extract CA from text, links and EVM', () => {
 });
 const sample = { address: BONK, symbol: 'Bonk', total: 78, reason: 'Top 10 wallets hold 38% · real project footprint', coin: { score: 80, label: 'OK', caps: [], items: [] }, narrative: { score: 75, label: 'LIKELY REAL' } };
 test('reply fits in 280 chars', () => {
-  const t = replyText(sample, 'https://example.onrender.com/token/' + BONK);
+  const t = replyText(sample, 'https://onthescope.fun/token/' + BONK);
   assert.match(t, /\$Bonk Scope Score: 78\/100/); assert.match(t, /DYOR/);
   assert.ok(t.replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length <= 280);
   const long = replyText({ ...sample, reason: 'x'.repeat(300), coin: { ...sample.coin, caps: ['y'.repeat(200)] } }, 'https://a.b/token/x');

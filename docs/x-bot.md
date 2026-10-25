@@ -7,7 +7,7 @@ to / quotes a post that has one — the bot replies with the Scope Score and a l
 🎯 $Bonk Scope Score: 78/100
 Coin 80 · OK | Narrative 75 · LIKELY REAL
 “Top 10 wallets (excl. pools/lockers) hold 38% · real project footprint”
-Breakdown: https://<your site>/token/DezXAZ…B263
+Breakdown: https://onthescope.fun/token/DezXAZ…B263
 DYOR · not financial advice
 ```
 
@@ -49,7 +49,7 @@ no contract address cost only $0.001 (plus $0.005 for the parent post).
 3. In the app, open **User authentication settings → Set up**:
    - App permissions: **Read and write**
    - Type of app: **Web App, Automated App or Bot**
-   - Callback URL / Website: use your site URL (e.g. `https://trenchscope.onrender.com`)
+   - Callback URL / Website: use your site URL (`https://onthescope.fun`, or `https://trenchscope.onrender.com`)
    - Save.
 4. Open **Keys and tokens**:
    - **API Key and Secret** (also called Consumer Key/Secret) → copy both.
@@ -67,7 +67,7 @@ no contract address cost only $0.001 (plus $0.005 for the parent post).
    | `X_ACCESS_SECRET` | Access Token Secret |
    | `X_BEARER_TOKEN` | optional, not needed today |
    | `X_BOT_HANDLE` | optional, default `OnTheScope` |
-   | `PUBLIC_URL` | optional, e.g. `https://onthescope.com` once you own the domain. Without it the bot uses Render’s `RENDER_EXTERNAL_URL` automatically |
+   | `PUBLIC_URL` | optional, defaults to `https://onthescope.fun` in `render.yaml` (or falls back to Render’s `RENDER_EXTERNAL_URL`) |
    | `X_BOT_DRY_RUN` | optional, `1` = log the replies it *would* post to the Render logs but post nothing. Good for a first test |
    | `X_POLL_SECONDS` | optional, default `90` (minimum 30) |
    | `X_MAX_REPLIES_PER_HOUR` | optional, default `30` |

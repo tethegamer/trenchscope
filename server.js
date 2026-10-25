@@ -13,7 +13,7 @@ const { safeFetch } = require('./lib/safefetch');
 
 const PORT = process.env.PORT || 3000;
 const RPC = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
-const UA = { 'User-Agent': 'OnTheScope/1.0 (+https://github.com/tethegamer/trenchscope)', Accept: 'application/json' };
+const UA = { 'User-Agent': 'OnTheScope/1.0 (+https://onthescope.fun)', Accept: 'application/json' };
 
 // ---------- cache with in-flight dedupe + stale-on-error ----------
 const store = new Map();
@@ -331,7 +331,7 @@ async function resolveToken({ address, chain, viaPair }) {
   const best = (pairs?.pairs || []).filter(p => String(p.baseToken?.address).toLowerCase() === address.toLowerCase() && (p.chainId === 'solana' || chains.byId[p.chainId])).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
   return best ? { chain: best.chainId, address: best.baseToken.address } : null;
 }
-const publicBase = () => String(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+const publicBase = () => String(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || 'https://onthescope.fun').replace(/\/+$/, '');
 const xbot = createXBot({ scoreFor: (c, a) => scoreFor(c, a, { full: true, prio: PRIO.normal }), resolveChain: resolveToken, baseUrl: publicBase, stateFile: process.env.XBOT_STATE_FILE || path.join(__dirname, 'data', 'xbot-state.json') });
 xbot.start();
 

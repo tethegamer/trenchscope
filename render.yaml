@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+      - key: PUBLIC_URL
+        value: https://onthescope.fun
       # Optional: a private RPC (Helius/Triton/etc.) for dev-wallet SOL balances
       - key: SOLANA_RPC
         sync: false

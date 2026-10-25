@@ -2,11 +2,11 @@
 
 # On the Scope
 
-**The multi-chain token screener that tells you if a token is a rug *before* you click it.**
+**The multi-chain token screener that tells you if a token is a rug *before* you click it.** — **[onthescope.fun](https://onthescope.fun)**
 
 DexScreener shows you charts. On the Scope shows you charts **plus a safety score on every single row** — mint/freeze authority, LP lock, real holder concentration, dev wallet and bundle/sniper detection — so you can filter the trenches down to tokens that aren't obvious traps.
 
-> **Why the name?** "The trenches" is what memecoin traders call the low-cap, high-risk market across Solana, Base, Ethereum, BNB Chain and 30+ chains. Putting a token *on the scope* means looking at it through the crosshair before you jump in. (Formerly TrenchScope; the repo and Render service keep the old name.)
+> **Why the name?** "The trenches" is what memecoin traders call the low-cap, high-risk market across Solana, Base, Ethereum, BNB Chain and 30+ chains. Putting a token *on the scope* means looking at it through the crosshair before you jump in. (Live at **[onthescope.fun](https://onthescope.fun)**; formerly TrenchScope — the GitHub repo and Render service keep the `trenchscope` name.)
 
 ![desktop](docs/desktop.png)
 
