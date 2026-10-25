@@ -2,12 +2,12 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs'); const path = require('path');
-const list = require('../data/smart-wallets');
+const list = require('../lib/smart-wallets');
 const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const bytes = s => { let n = 0n; for (const c of s) { const i = A.indexOf(c); if (i < 0) return -1; n = n * 58n + BigInt(i); } let h = n.toString(16); if (h.length % 2) h = '0' + h; let z = 0; for (const c of s) { if (c === '1') z++; else break; } return h.length / 2 + z; };
 
 test('smart-money list: valid unique Solana addresses, each with a cited public source', () => {
-  const src = fs.readFileSync(path.join(__dirname, '../data/smart-wallets.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '../lib/smart-wallets.js'), 'utf8');
   assert.ok(list.length >= 50 && list.length <= 150, '50-150 curated wallets');
   assert.ok(list.filter(w => w.cat === 'caller').length >= 20, 'pump.fun callers present');
   assert.equal(new Set(list.map(w => w.addr)).size, list.length);
@@ -29,7 +29,7 @@ test('tracker keeps smart-money events per mint', async () => {
 });
 
 test('caller stats snapshot only covers listed wallets', () => {
-  const st = require('../data/caller-stats.json'); const set = new Set(list.map(w => w.addr));
+  const st = require('../lib/caller-stats.json'); const set = new Set(list.map(w => w.addr));
   const keys = Object.keys(st.wallets); assert.ok(keys.length >= 50);
   assert.ok(keys.filter(a => set.has(a)).length >= keys.length - 5);
 });

@@ -348,7 +348,7 @@ async function pricesFor(mints) {
 const alerts = createAlerts({ dataDir: path.join(__dirname, 'data'), getPrices: pricesFor, ogPeek: m => og.peek(m), ogResults: () => og.db.results, tracker, baseUrl: publicBase });
 alerts.start(); tracker.start();
 // ---------- smart money: curated public KOL wallets (data/smart-wallets.js) + each visitor's own tracked wallets ----------
-const SMART = process.env.SMART_MONEY === '0' ? [] : require('./data/smart-wallets');
+const SMART = process.env.SMART_MONEY === '0' ? [] : require('./lib/smart-wallets');
 const SMART_BY = new Map(SMART.map(w => [w.addr, w]));
 tracker.setSource('smart', SMART, { backfill: +process.env.SMART_BACKFILL || 5 }); // 120+ wallets: a light first look each, then incremental
 const SM_WINDOW = 24 * 3600e3;
@@ -368,7 +368,7 @@ function smartFor(mint, mine = new Set()) {
   return { buyers: [...buyers], callers: [...callers], sellers: [...sellers], mine: own.length ? { buys: own.filter(e => e.side === 'buy').length, sells: own.filter(e => e.side === 'sell').length, wallets: [...new Set(own.map(e => e.wallet))] } : null, last: Math.max(...ev.map(e => e.at)), events: [...smart, ...own.filter(o => !smart.some(s => s.sig === o.sig))].slice(0, 30) };
 }
 // ---------- Top Callers: leaderboard + recent buys of the curated callers/traders ----------
-const CALLER_STATS = (() => { try { return require('./data/caller-stats.json'); } catch { return { wallets: {} }; } })();
+const CALLER_STATS = (() => { try { return require('./lib/caller-stats.json'); } catch { return { wallets: {} }; } })();
 const walletsParam = q => new Set(String(q || '').split(',').filter(isMint).slice(0, 20));
 
 const chip = s => s && { t: s.total, c: s.coin?.score ?? null, cl: s.coin?.label || null, n: s.narrative.score, nl: s.narrative.label, g: s.grade, r: s.reason };
