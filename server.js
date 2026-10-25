@@ -10,6 +10,8 @@ const crypto = require('crypto');
 const QRCode = require('qrcode');
 const scoreLib = require('./lib/score');
 const { safeFetch } = require('./lib/safefetch');
+const { createPresence, normalizeToken } = require('./lib/presence');
+const presence = createPresence();
 
 const PORT = process.env.PORT || 3000;
 const RPC = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
@@ -246,7 +248,7 @@ setInterval(async () => {
   const t = ogQ.shift();
   try { if (!og.peek(t.mint)) await og.check(t); } catch {} finally { ogQueued.delete(t.mint); ogBusy = false; }
 }, 250).unref();
-const withIntel = (r, boosts = pay.activeBoosts(), scoped = pay.scopedMints()) => ({ ...r, safety: peekSafety(r.mint) || null, score: peekScore('solana', r.mint), og: og.peek(r.mint) || null, promo: boosts[r.mint] || 0, scope: scoped.has(r.mint) });
+const withIntel = (r, boosts = pay.activeBoosts(), scoped = pay.scopedMints()) => ({ ...r, safety: peekSafety(r.mint) || null, score: peekScore('solana', r.mint), og: og.peek(r.mint) || null, promo: boosts[r.mint] || 0, scope: scoped.has(r.mint), watchers: presence.count(r.mint, r.chain || 'solana') });
 
 // ---------- Solana RPC ----------
 async function rpc(method, params) {
@@ -480,13 +482,37 @@ app.get('/api/live/new', (req, res) => {
   const hb = setInterval(() => send('ping', { now: Date.now(), pump: LIVE.stats.connected }), 20e3);
   req.on('close', () => { clearInterval(hb); off(); });
 });
+app.get('/api/stream', (req, res) => {
+  presence.connectStream(req, res, { sid: req.query.sid, token: req.query.token, chain: req.query.chain });
+});
+const presenceBody = [express.json({ limit: '4kb' }), express.text({ type: 'text/plain', limit: '4kb' })];
+function handlePresence(req, res) {
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+  const src = (body && typeof body === 'object' && Object.keys(body).length) ? body : req.query;
+  const sid = src.sid ? String(src.sid) : '';
+  const chain = src.chain !== undefined ? String(src.chain) : undefined;
+  const hasToken = Object.prototype.hasOwnProperty.call(src, 'token');
+  const token = hasToken ? (src.token == null ? '' : String(src.token)) : undefined;
+  const leave = src.leave === true || src.leave === '1' || src.leave === 'true';
+  const snap = sid ? (leave ? presence.leave(sid) : presence.touch(sid, { token, chain })) : presence.snapshot();
+  const normTok = hasToken ? normalizeToken(token, chain) : null;
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    ok: true,
+    ...snap,
+    ...(hasToken ? { token: normTok, tokenViewers: normTok ? (snap.watching[normTok] || 0) : 0 } : {}),
+  });
+}
+app.get('/api/presence', handlePresence);
+app.post('/api/presence', presenceBody, handlePresence);
 app.get('/api/chains', (req, res) => ok(res, { chains: chains.SUPPORTED.map(({ id, name, color }) => ({ id, name, color })), skipped: chains.CHAINS.filter(c => !c.gt).map(c => c.name) }, 3600));
 app.get('/api/list/:kind', async (req, res) => {
   const chain = String(req.query.chain || 'solana');
   if (chain !== 'solana') {
     if (!['trending', 'new', 'gainers'].includes(req.params.kind)) return fail(res, new Error('list not available on this chain'), 404);
     if (chain !== 'all' && !chains.byId[chain]) return fail(res, new Error('unsupported chain'), 404);
-    try { const rows = await chainList(req.params.kind, chain); res.set('Cache-Control', 'no-cache'); return res.json({ updatedAt: store.get(`clist:${req.params.kind}:${chain}`)?.at || Date.now(), rows: rows.map(r => ({ ...r, safety: null, og: null, promo: 0, scope: false, score: peekScore(r.chain || chain, r.mint) })) }); }
+    try { const rows = await chainList(req.params.kind, chain); res.set('Cache-Control', 'no-cache'); return res.json({ updatedAt: store.get(`clist:${req.params.kind}:${chain}`)?.at || Date.now(), rows: rows.map(r => ({ ...r, safety: null, og: null, promo: 0, scope: false, score: peekScore(r.chain || chain, r.mint), watchers: presence.count(r.mint, r.chain || chain) })) }); }
     catch (e) { return fail(res, e); }
   }
   const fn = lists[req.params.kind];
@@ -553,7 +579,7 @@ async function chainToken(chain, addr, res) {
       if (g?.data?.[0]) main = fromGecko(g.data[0]);
     }
     if (!main) return fail(res, new Error('Token not found on this chain'), 404);
-    ok(res, { mint: addr, chain, main, pairs: ps.slice(0, 8).map(fromDex), safety: { unavailable: true, error: 'Safety scan is Solana-only for now' }, dev: null, pump: null, og: null, flippedBy: [], scope: null, promo: 0, name: main.name, symbol: main.symbol, icon: main.icon }, 20);
+    ok(res, { mint: addr, chain, main, pairs: ps.slice(0, 8).map(fromDex), safety: { unavailable: true, error: 'Safety scan is Solana-only for now' }, dev: null, pump: null, og: null, flippedBy: [], scope: null, promo: 0, name: main.name, symbol: main.symbol, icon: main.icon, watchers: presence.count(addr, chain) }, 20);
   } catch (e) { fail(res, e); }
 }
 app.get('/api/score/:chain/:address', async (req, res) => {
@@ -598,7 +624,7 @@ app.get('/api/token/:mint', async (req, res) => {
       mint, main, pairs: sol.slice(0, 8).map(fromDex), safety, dev, pump: pumpInfo, og: ogInfo,
       flippedBy: og.flippedBy(mint), scope: pay.scopeInfo(mint), promo: pay.activeBoosts()[mint] || 0,
       name: main?.name || safety?.name || pump?.name, symbol: main?.symbol || safety?.symbol || pump?.symbol,
-      icon: main?.icon || pump?.image_uri || null,
+      icon: main?.icon || pump?.image_uri || null, watchers: presence.count(mint, 'solana'),
     }, 20);
   } catch (e) { fail(res, e); }
 });
@@ -784,7 +810,7 @@ app.post('/api/admin/orders/:id/recheck', admin, async (req, res) => { try { res
 const JUP = require('./lib/jupiter').jupiterConfig(process.env, console);
 console.log(`[jupiter] plugin ${JUP.plugin ? 'on' : 'off'}, referral ${JUP.referralAccount ? JUP.feeBps + ' bps' : 'off (set JUP_REFERRAL_ACCOUNT)'}`);
 app.get('/api/config', (req, res) => ok(res, { jup: JUP }, 300));
-app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, pausedUntil: xbot.status.pausedUntil }, alerts: { subscribers: alerts.status.subscribers, vapid: alerts.status.vapid, telegram: alerts.status.telegram, sent: alerts.status.sent, lastTick: alerts.status.lastTick }, wallets: tracker.status, cacheEntries: store.size }));
+app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, pausedUntil: xbot.status.pausedUntil }, alerts: { subscribers: alerts.status.subscribers, vapid: alerts.status.vapid, telegram: alerts.status.telegram, sent: alerts.status.sent, lastTick: alerts.status.lastTick }, wallets: tracker.status, presence: presence.summary(), cacheEntries: store.size }));
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/javascript').sendFile(path.join(__dirname, 'public', 'sw.js')); });
@@ -801,4 +827,4 @@ if (require.main === module) {
   setTimeout(() => { sampleVampMcaps(); setInterval(sampleVampMcaps, 10 * 60e3).unref(); }, 60e3);
   setTimeout(() => { prefetchOhlcv(); setInterval(prefetchOhlcv, 5 * 60e3).unref(); }, 20e3);
 }
-module.exports = { app };
+module.exports = { app, presence };

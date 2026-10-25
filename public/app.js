@@ -184,6 +184,130 @@ $('#alertsBtn').onclick = () => {
 };
 document.addEventListener('click', e => { const d = $('#drawer'); if (!d.hidden && !d.contains(e.target) && !$('#alertsBtn').contains(e.target)) d.hidden = true; });
 
+// ---------- live presence (site-wide online & per-chart viewers) ----------
+function tokKey(chain, mint) {
+  if (!mint) return null;
+  let addr = String(mint).trim();
+  if (!addr) return null;
+  if (/^0x[a-fA-F0-9]+$/.test(addr)) addr = addr.toLowerCase();
+  const ch = (chain || 'solana').toLowerCase();
+  return (!ch || ch === 'solana' || ch === 'all') ? addr : ch + ':' + addr;
+}
+const PRES = {
+  sid: (() => {
+    try {
+      let id = sessionStorage.getItem('ts:sid');
+      if (!id || !/^[A-Za-z0-9_-]{4,80}$/.test(id)) {
+        id = 's_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+        sessionStorage.setItem('ts:sid', id);
+      }
+      return id;
+    } catch {
+      return 's_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    }
+  })(),
+  online: 1,
+  watchingTotal: 0,
+  watching: {},
+  token: null,
+  es: null,
+};
+function watchChipHtml(chain, mint, fallback = 0) {
+  const k = tokKey(chain, mint);
+  const n = k ? (PRES.watching[k] ?? fallback ?? 0) : 0;
+  if (!n || n < 1) return '';
+  return `<span class="chip viewers" title="${n} trader${n === 1 ? '' : 's'} watching this chart right now"><span class="vdot"></span>👁 ${n}</span>`;
+}
+function watchSlot(chain, mint, fallback = 0) {
+  const k = tokKey(chain, mint);
+  if (!k) return '';
+  return `<span class="watch-slot" data-watch-slot="${esc(k)}">${watchChipHtml(chain, mint, fallback)}</span>`;
+}
+function renderPresence() {
+  const nOnline = Math.max(1, PRES.online || 1);
+  const cEl = $('#onlineCount');
+  if (cEl) cEl.textContent = nOnline.toLocaleString();
+  const pill = $('#onlinePill');
+  if (pill) {
+    const wt = PRES.watchingTotal || 0;
+    pill.title = `${nOnline} trader${nOnline === 1 ? '' : 's'} live on On the Scope right now${wt ? ` · ${wt} watching a chart` : ''}`;
+  }
+  const tw = $('#tokenWatchers'), cw = $('#chartWatchers');
+  if (PRES.token && (tw || cw)) {
+    const n = Math.max(1, PRES.watching[PRES.token] || 1);
+    const tip = `${n} trader${n === 1 ? ' is' : 's are'} watching this chart live right now`;
+    if (tw) {
+      tw.title = tip;
+      tw.innerHTML = `<span class="live"></span><b>${n}</b> watching`;
+    }
+    if (cw) {
+      cw.title = tip;
+      cw.innerHTML = `<span class="live"></span><b>${n}</b> watching now`;
+    }
+  }
+  document.querySelectorAll('[data-watch-slot]').forEach(el => {
+    const k = el.getAttribute('data-watch-slot');
+    const n = k ? (PRES.watching[k] || 0) : 0;
+    const next = n >= 1 ? `<span class="chip viewers" title="${n} trader${n === 1 ? '' : 's'} watching this chart right now"><span class="vdot"></span>👁 ${n}</span>` : '';
+    if (el.innerHTML !== next) el.innerHTML = next;
+  });
+}
+function applyPresenceSnap(d) {
+  if (!d || typeof d !== 'object') return;
+  if (typeof d.online === 'number') PRES.online = Math.max(1, d.online);
+  if (typeof d.watchingTotal === 'number') PRES.watchingTotal = d.watchingTotal;
+  if (d.watching && typeof d.watching === 'object') PRES.watching = d.watching;
+  renderPresence();
+}
+function sendPresence(tok) {
+  fetch('/api/presence', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sid: PRES.sid, token: tok ?? null }),
+    keepalive: true,
+  }).then(r => r.ok ? r.json() : null).then(applyPresenceSnap).catch(() => {});
+}
+function setWatching(nextTok) {
+  const norm = nextTok || null;
+  const prev = PRES.token;
+  PRES.token = norm;
+  if (prev && prev !== norm && PRES.watching[prev]) {
+    PRES.watching[prev] = Math.max(0, PRES.watching[prev] - 1);
+    if (!PRES.watching[prev]) delete PRES.watching[prev];
+  }
+  if (norm && !PRES.watching[norm]) PRES.watching[norm] = 1;
+  renderPresence();
+  if (prev !== norm) sendPresence(norm);
+}
+function connectPresenceStream() {
+  if (typeof EventSource === 'undefined') { sendPresence(PRES.token); return; }
+  try {
+    const qs = new URLSearchParams({ sid: PRES.sid });
+    if (PRES.token) qs.set('token', PRES.token);
+    const es = new EventSource('/api/stream?' + qs.toString());
+    PRES.es = es;
+    es.addEventListener('presence', ev => {
+      try { applyPresenceSnap(JSON.parse(ev.data)); } catch {}
+    });
+    es.addEventListener('open', () => {
+      if (PRES.token) sendPresence(PRES.token);
+    });
+  } catch {
+    sendPresence(PRES.token);
+  }
+}
+$('#onlinePill')?.addEventListener('click', () => {
+  const n = Math.max(1, PRES.online || 1);
+  const wt = PRES.watchingTotal || 0;
+  toast(`🟢 <b>${n}</b> trader${n === 1 ? '' : 's'} online right now${wt ? ` · <b>${wt}</b> watching charts` : ''}`);
+});
+setInterval(() => {
+  if (!PRES.es || PRES.es.readyState !== 1) sendPresence(PRES.token);
+}, 25000);
+window.addEventListener('pagehide', () => {
+  try { navigator.sendBeacon?.('/api/presence', JSON.stringify({ sid: PRES.sid, leave: true })); } catch {}
+});
+
 // ---------- router ----------
 let cleanup = [];
 function go(path) { history.pushState(null, '', path); route(); }
@@ -201,7 +325,7 @@ function route() {
   window.scrollTo(0, 0);
   const o = location.pathname.match(/^\/order\/([a-f0-9]{20})$/);
   $('#profileBtn')?.classList.toggle('on', location.pathname === '/profile');
-  if (mc) tokenPage(decodeURIComponent(mc[2]), mc[1]); else if (m) tokenPage(decodeURIComponent(m[1]), qChain || 'solana'); else if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else if (location.pathname === '/callers') callersPage(); else if (location.pathname === '/profile') openProfile(); else listPage();
+  if (mc) { const ch = mc[1], addr = decodeURIComponent(mc[2]); setWatching(tokKey(ch, addr)); tokenPage(addr, ch); } else if (m) { const ch = qChain || 'solana', addr = decodeURIComponent(m[1]); setWatching(tokKey(ch, addr)); tokenPage(addr, ch); } else { setWatching(null); if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else if (location.pathname === '/callers') callersPage(); else if (location.pathname === '/profile') openProfile(); else listPage(); }
 }
 
 // ---------- profile (lazy-loaded module) ----------
@@ -420,7 +544,7 @@ function draw() {
     const L = links(x.mint);
     return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class="${x.promo ? 'promoted' : ''}${fresh(x) ? ' slide' : ''}">
       <td class="l"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}" title="Watchlist">${isWatched(x.mint) ? '★' : '☆'}</button></td>
-      <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''} · ${caBtn(x.mint, x.symbol)}</span></div></div></td>
+      <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}${watchSlot(x.chain, x.mint, x.watchers)}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''} · ${caBtn(x.mint, x.symbol)}</span></div></div></td>
       <td class="l"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span></td>
       <td class="mono">${price(x.priceUsd)}</td><td class="mut">${age(x.createdAt)}</td>
       <td>${tot ? `<div class="txbar"><span>${tot.toLocaleString()}</span><span class="b"><i style="width:${(b / tot * 100).toFixed(0)}%"></i></span></div>` : '<span class="dim">—</span>'}</td>
@@ -429,7 +553,7 @@ function draw() {
       <td>${x.chain && x.chain !== 'solana' ? '' : `<a class="buy" href="${L.jup}" target="_blank" rel="noopener" data-stop>Buy</a>`}</td></tr>`;
   }).join('');
   $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c${fresh(x) ? ' slide' : ''}" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
-      <div class="tok" style="grid-column:1/3">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)} · ${caBtn(x.mint, x.symbol)}</span></div></div>
+      <div class="tok" style="grid-column:1/3">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}${watchSlot(x.chain, x.mint, x.watchers)}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)} · ${caBtn(x.mint, x.symbol)}</span></div></div>
       <div class="pr"><b class="mono">${price(x.priceUsd)}</b>${pct(x.change?.h24 ?? x.change?.h1)}</div>
       <div class="sf"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button>${x.chain && x.chain !== 'solana' ? '' : `<a class="buy" href="${links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>Buy</a>`}</span></div>
       <div class="meta"><span>Liq <b>${usd(x.liquidity)}</b></span><span>Vol <b>${usd(x.volume?.h24)}</b></span><span>MCap <b>${usd(x.mcap || x.fdv)}</b></span><span>1h ${pct(x.change?.h1)}</span></div></div>`).join('');
@@ -515,7 +639,7 @@ async function tokenPage(mint, chain = 'solana') {
   ${sc && safeUrl(sc.banner) ? `<div class="banner" style="margin-top:10px"><img src="${esc(sc.banner)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></div>` : ''}
   <div class="tp-head" style="margin-top:10px">${icon({ icon: (sc && safeUrl(sc.logo)) || d.icon, symbol: d.symbol })}
     <div><h1>${esc(d.symbol || '?')} <span class="mut" style="font-weight:500;font-size:16px">${esc(d.name || '')}</span> ${sv ? badge(s) : ''} ${sc ? scopeTag(true) : ''} ${ogTag(d.og, true)}${d.og && d.og.status !== 'none' ? glossLink : ''}${d.flippedBy?.length ? `<span class="chip vamp" title="Valid Vamp(s) have 3x+ this token's smoothed market cap">Flipped by ${esc(d.flippedBy[0].symbol || short(d.flippedBy[0].mint))}</span>` : ''} ${promoTag(d.promo, true)}</h1>
-      <div class="addr"><span>${esc(short(mint))}</span><button class="copy" data-copy="${mint}">Copy CA</button>${m.dex ? `<span class="chip">${esc(m.dex)}</span>` : ''}${s.launchpad ? `<span class="chip">${esc(s.launchpad)}</span>` : ''}${m.createdAt ? `<span class="chip">Pair age ${age(m.createdAt)}</span>` : ''}${socials.map(x => `<a class="chip" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join('')}</div></div>
+      <div class="addr"><span class="watch-badge" id="tokenWatchers" title="Traders watching this chart live right now"><span class="live"></span><b>${Math.max(1, PRES.watching[PRES.token] || d.watchers || 1)}</b> watching</span><span>${esc(short(mint))}</span><button class="copy" data-copy="${mint}">Copy CA</button>${m.dex ? `<span class="chip">${esc(m.dex)}</span>` : ''}${s.launchpad ? `<span class="chip">${esc(s.launchpad)}</span>` : ''}${m.createdAt ? `<span class="chip">Pair age ${age(m.createdAt)}</span>` : ''}${socials.map(x => `<a class="chip" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`).join('')}</div></div>
     <div class="price-big" id="pbig" role="button" tabindex="0" title="Tap to switch Price ⇄ Market cap"></div>
   </div>
   ${sc ? `<div class="card scopecard"><div class="mut" style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${SCOPE_ICO} Project info · submitted by the team, reviewed by On the Scope</div><p style="margin:0 0 8px;white-space:pre-wrap">${esc(sc.description)}</p>${scLinks.map(([l, u]) => `<a class="chip" href="${esc(u)}" target="_blank" rel="noopener nofollow">${l} ↗</a>`).join(' ')}</div>` : ''}
@@ -542,7 +666,7 @@ async function tokenPage(mint, chain = 'solana') {
   </div>
   <div class="grid">
     <div class="stack">
-      <div class="card chartcard"><div class="chart-top">${['1m', '5m', '15m', '1h', '4h', '1d'].map(t => `<button class="tf" data-tf="${t}">${t}</button>`).join('')}<span class="dim" id="chartSrc" style="margin-left:auto;font-size:12px">${m.pair ? 'GeckoTerminal OHLCV · USD' : ''}</span></div><div id="chart">${m.pair ? '' : '<div class="empty">No trading pair found yet.</div>'}</div>
+      <div class="card chartcard"><div class="chart-top">${['1m', '5m', '15m', '1h', '4h', '1d'].map(t => `<button class="tf" data-tf="${t}">${t}</button>`).join('')}<span class="chart-watchers" id="chartWatchers" title="Traders watching this chart live right now"><span class="live"></span><b>${Math.max(1, PRES.watching[PRES.token] || d.watchers || 1)}</b> watching now</span><span class="dim" id="chartSrc" style="font-size:12px">${m.pair ? 'GeckoTerminal OHLCV · USD' : ''}</span></div><div id="chart">${m.pair ? '' : '<div class="empty">No trading pair found yet.</div>'}</div>
         <div class="chg-row">${['m5', 'h1', 'h6', 'h24'].map(k => `<div><small>${k.replace('m', '').replace('h', '')}${k[0]}</small>${pct(m.change?.[k])}</div>`).join('')}</div></div>
       <div class="card trades"><h3>Recent trades <span class="r" id="trUpd"></span></h3><div class="scroll" id="trades"><div class="skel"></div></div></div>
       ${d.pairs?.length > 1 ? `<div class="card"><h3>Pools <span class="r">click to switch chart &amp; trades</span></h3><div class="scroll"><table style="min-width:520px"><thead><tr><th class="l">DEX</th><th class="l">Pair</th><th>Price</th><th>Liquidity</th><th>Vol 24h</th><th></th></tr></thead><tbody>${d.pairs.map(p => { const pe = explorer(chain, 'account', p.pair); return `<tr class="pool-row ${p.pair === m.pair ? 'on' : ''}" data-pool="${esc(p.pair)}" data-price="${p.priceUsd || ''}"><td class="l">${esc(p.dex)}</td><td class="l mono dim">${esc(short(p.pair))} · ${esc(p.quote)}</td><td class="mono">${price(p.priceUsd)}</td><td>${usd(p.liquidity)}</td><td>${usd(p.volume?.h24)}</td><td>${pe ? `<a class="dim" href="${esc(pe.url)}" target="_blank" rel="noopener" data-stop title="View pool on ${esc(pe.name)}">↗</a>` : ''}</td></tr>`; }).join('')}</tbody></table></div></div>` : ''}
@@ -574,6 +698,7 @@ async function tokenPage(mint, chain = 'solana') {
     $('#pbig').innerHTML = `<b class="mono">${showMc ? usd(mc) : price(m.priceUsd)}</b>${pct(m.change?.h24)} <span class="dim">24h</span><div class="pb-hint">${showMc ? '<u>MCap</u> ⇄ Price' : '<u>Price</u> ⇄ MCap'}</div>`;
   };
   drawBig();
+  renderPresence();
   $('#pbig').onclick = () => { LS.set('bigMode', LS.get('bigMode', 'price') === 'mcap' ? 'price' : 'mcap'); drawBig(); };
   $('#pbig').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#pbig').click(); } };
   app.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = 'Copied ✓'; setTimeout(() => (b.textContent = 'Copy CA'), 1500); });
@@ -852,6 +977,7 @@ function glossary(force) {
     <dt><span class="chip vamp">VAMP</span></dt><dd>A later launch reusing an OG's name that has also graduated.</dd>
     <dt><span class="chip vv">VV</span></dt><dd><b>Valid Vamp</b>: a vamp 24h+ old whose few-hour smoothed market cap is 3x+ the OG's — earned when a vamp genuinely outgrows the original. It can lose the badge if it drops back under 3x.</dd>
     <dt><span class="chip caller">📣 2</span></dt><dd><b>Top Callers</b>: public pump.fun callers bought this token in the last 24h. See <a href="/callers" data-link style="color:var(--b)">📣 Top Callers</a> for their 2x hit rate and live buy feed.</dd>
+    <dt><span class="chip viewers"><span class="vdot"></span>👁 3</span></dt><dd><b>Live chart viewers</b>: how many people are actively watching that token's chart on On the Scope right now.</dd>
     <dt><span class="chip smart">🧠 3</span></dt><dd><b>Smart money</b>: tracked KOL trader &amp; caller wallets (123 public wallets) bought in the last 24h. <b>👛 You</b> marks your own tracked wallets.</dd>
     <dt>${scopeTag()}</dt><dd><b>Scoped</b>: the team paid for an enhanced profile that On the Scope reviewed. A paid listing, not an endorsement.</dd>
     <dt><span class="chip sscore s-g">${SCOPE_ICO}72</span></dt><dd><b>Scope Score</b> (0–100): 60% <b>coin fairness</b> (insiders, bundles, snipers, dev wallet, top holders, LP, fees → OK / NEUTRAL / SKETCHY / RIGGED) + 40% <b>narrative</b>, a heuristic of website, domain age, socials and GitHub (LIKELY REAL / PARTLY REAL / LIKELY LARP). DYOR.</dd></dl>
@@ -867,4 +993,5 @@ document.addEventListener('click', e => { if (e.target.closest('[data-gloss]')) 
 const glossLink = '<a href="#" class="glink" data-gloss data-stop title="What do OG / VAMP / VV / Caller / Scope Score mean?">?</a>';
 
 route();
+connectPresenceStream();
 setTimeout(() => glossary(false), 600);

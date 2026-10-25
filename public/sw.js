@@ -6,7 +6,7 @@
 //    and the app says so; we never show an old price as if it were current.
 //  * Pages and our own JS/CSS: network first, using the cached copy only when offline.
 //  * Icons/images/fonts: cache first (they never carry prices).
-const VERSION = 'ots-v4';
+const VERSION = 'ots-v5';
 const SHELL = ['/', '/app.css', '/app.js', '/profile.js', '/alerts-client.js', '/buy.js', '/pwa.js', '/pnl-core.js', '/logo.svg', '/icon-192.png', '/manifest.webmanifest'];
 self.addEventListener('install', e => {
   self.skipWaiting();
