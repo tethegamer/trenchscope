@@ -98,7 +98,7 @@ The browser keeps a random id and re-syncs its watchlist / wallets / targets to 
 - **Web push** needs `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` (run `npx web-push generate-vapid-keys` once, paste both into Render's
   Environment tab) and optionally `VAPID_SUBJECT` (`mailto:you@example.com`). If they're missing the server generates temporary keys and
   logs a warning — push still works but every redeploy changes the keys and devices must tap *Turn on* again. Keys are never committed.
-- **Telegram**: create a bot with [@BotFather](https://t.me/BotFather) → `/newbot`, put the token in `TELEGRAM_ALERTS_BOT_TOKEN`.
+- **Telegram**: create a bot with [@BotFather](https://t.me/BotFather) → `/newbot`, put the token in `TELEGRAM_ALERTS_BOT_TOKEN` (or `TELEGRAM_BOT_TOKEN`).
   Users tap *Link Telegram* (opens `t.me/<bot>?start=<code>`); `/stop` unlinks. Without the token the Telegram option shows "Soon".
 - iPhone/iPad: web push only works after *Share → Add to Home Screen* (iOS 16.4+); the tab explains this.
 - Render's free disk is wiped on deploy; browsers re-sync automatically on their next visit, Telegram links are restored from a signed token.
@@ -132,6 +132,10 @@ When a coin pumps, vamps relaunch the same name/ticker. On the Scope finds every
 - Buyers order on **/advertise** → get Solana Pay QR codes / wallet links (USDC exact amount, or SOL quoted live and valid 1h) → `/order/:id` polls and verifies on-chain.
 - **No private keys.** Each payment option has a unique `reference` pubkey; the server looks up transactions with it via public RPC and checks the owner wallet’s USDC/SOL balance delta (logic adapted from SafeSign). A signature can only pay one order.
 - **Trending you can trust** (`lib/trust.js`): 🔥 Trending is ranked by organic activity (1h/24h trades and volume, damped for thin pools, wash-like turnover, a few huge trades or one-sided flow) blended with the Scope Score; danger-rated tokens sink. Paid boosts do **not** change that order: up to `TRENDING_AD_SLOTS` (default 3) boosted tokens get a pinned, labelled **⚡ AD** slot on top, only while their Scope Score is ≥ `BOOST_MIN_SCORE` (default 50). Tokens only listed because they paid DexScreener (**DS⚡**) get no lift and must earn their place on activity. `?rank=raw` gives the old order.
+- **🧹 Clean Trending** (on by default, toggle on the Trending tab): hides tokens flagged as **bundled** (RugCheck/GoPlus), **sniped** (snipers still hold ≥15% or coin fairness RIGGED) or **copycat** (a VAMP of an older OG that isn't a Valid Vamp). Flagged tokens are also down-weighted in the trust rank and can never take an ⚡ AD slot. Each row carries `flags` in `/api/list/trending`.
+- **📊 Score track record** (`lib/trackrecord.js`, `/api/track-record`): every Solana token's Scope Score is logged the first time it is scored, then its price/liquidity is re-checked after 24h and 7d. Rug rates (−90% price or liquidity) and median change are published per score bucket (70+, 45–69, <45) and summarised above Trending once enough tokens have matured. Stored in `data/track-record.json` (`TRACK_FILE` to override; Render's free disk resets on deploy).
+- **📸 Scope card**: the token page renders a 1200×675 shareable image (score ring, fairness, bundles/snipers, authorities, OG/copycat, KOL buys) to download, post on X (tags @OnTheScope) or share natively.
+- **Quick buy**: 0.1 / 0.25 / 0.5 / 1 / 2 SOL presets above the Jupiter swap (remembered per browser).
 - Boosts activate instantly and are labelled **⚡ Promoted / AD**. They're only sold to tokens with a Scope Score ≥ `BOOST_MIN_SCORE` that our scanner doesn't rate high-risk (`GET /api/boost-check?mint=` tells the advertise form up front).
 - Scoped orders go to **review**; the owner approves/rejects at **/admin** (`ADMIN_PASSWORD` env, timing-safe compare, lockout after 10 failures). Only approved info is shown.
 - Orders persist in `data/orders.json` (`ORDERS_FILE` to change).
