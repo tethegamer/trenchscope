@@ -52,6 +52,12 @@ test('Scoped order: pending -> paid -> review -> approved shows profile; signatu
   pay.review(o.id, true);
   assert.strictEqual(pay.scopeInfo(MINT).description, 'A test description long enough');
   assert.ok(pay.scopedMints().has(MINT));
+  // X bot "Newly Scoped" queue: approved listing shows up once, until marked announced
+  const q = pay.recentScoped().filter(x => x.id === o.id);
+  assert.strictEqual(q.length, 1); assert.strictEqual(q[0].mint, MINT); assert.strictEqual(q[0].announcedAt, null);
+  pay.markAnnounced(o.id);
+  assert.ok(pay.recentScoped().find(x => x.id === o.id).announcedAt > 0);
+  assert.strictEqual(pay.recentScoped(-1).length, 0);
   // same signature cannot pay a second order
   const o2 = await pay.createOrder('boost30', MINT); forceOption(o2.id, 49);
   assert.strictEqual((await pay.checkOrder(o2.id)).status, 'pending');

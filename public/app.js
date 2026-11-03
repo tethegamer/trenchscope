@@ -122,7 +122,7 @@ const scoreSkel = `<div class="sc-top"><div class="sring s-n" style="--v:0;width
 // ---------- paid placements ----------
 const SCOPE_ICO = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>';
 const scopeTag = big => `<span class="chip scope" title="Scoped: the project paid for an enhanced profile and On the Scope reviewed the submitted info. This is a paid listing, not an endorsement — always check the safety score.">${SCOPE_ICO}${big ? ' Scoped' : ''}</span>`;
-const promoTag = (n, big) => n ? `<span class="chip promo" title="Promoted: ${n} paid boosts active on this site. Paid placement — ranking raised in Trending.">⚡${big ? ' Promoted · ' : ''}${n}${big ? ' boosts' : ''}${big ? '' : ' AD'}</span>` : '';
+const promoTag = (n, big, pinned) => n ? `<span class="chip promo" title="Promoted: ${n} paid boosts active on this site. Paid placement${pinned ? ' — this row holds one of the few labelled AD slots at the top of Trending' : ''}. Boosts are only sold to tokens with a good Scope Score; they don't change the organic ranking.">⚡${big ? ' Promoted · ' : ''}${n}${big ? ' boosts' : ''}${big ? '' : ' AD'}</span>` : '';
 
 // ---------- OG / VAMP ----------
 const dt = ts => ts ? new Date(ts).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?';
@@ -143,6 +143,7 @@ function toggleWatch(r) {
   LS.set('watch', watch);
   toast(watch[r.mint] ? `★ Added ${r.symbol} to watchlist` : `Removed ${r.symbol} from watchlist`);
 }
+window.toast = (...a) => toast(...a);
 function toast(msg, color) {
   const t = document.createElement('div'); t.className = 'toast'; if (color) t.style.borderLeftColor = color; t.innerHTML = msg;
   $('#toasts').append(t); setTimeout(() => t.remove(), 5000);
@@ -340,7 +341,7 @@ async function openProfile() {
 
 // ---------- list page ----------
 const TABS = [
-  { id: 'trending', label: '🔥 Trending', desc: 'Hottest Solana pairs right now (GeckoTerminal trending + DexScreener boosts), enriched with live DexScreener stats.' },
+  { id: 'trending', label: '🔥 Trending', desc: 'Trending you can trust: ranked by organic on-chain activity + Scope Score, not by who paid. Paid slots are pinned on top and labelled AD (only tokens scoring well can buy one); DexScreener boosts get no lift here.' },
   { id: 'new', label: '<span class="dot"></span> ✨ New pairs', desc: 'Every new coin the moment it launches: pump.fun &amp; LetsBonk launches stream in live, plus fresh DEX pools, newest first.' },
   { id: 'gainers', label: '🚀 Gainers', desc: 'Biggest 24h movers with at least $5K liquidity across tracked pairs.' },
   { id: 'callers', label: '📣 Top Callers', desc: '' },
@@ -542,9 +543,9 @@ function draw() {
   tb.innerHTML = r.slice(0, 200).map((x, i) => {
     const b = x.txns?.h24?.buys, s = x.txns?.h24?.sells, tot = (b || 0) + (s || 0);
     const L = links(x.mint);
-    return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class="${x.promo ? 'promoted' : ''}${fresh(x) ? ' slide' : ''}">
+    return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class="${x.promo ? 'promoted' : ''}${x.pinned ? ' pinned' : ''}${fresh(x) ? ' slide' : ''}">
       <td class="l"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}" title="Watchlist">${isWatched(x.mint) ? '★' : '☆'}</button></td>
-      <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}${watchSlot(x.chain, x.mint, x.watchers)}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''} · ${caBtn(x.mint, x.symbol)}</span></div></div></td>
+      <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo, false, x.pinned)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener — no ranking lift here)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}${watchSlot(x.chain, x.mint, x.watchers)}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''} · ${caBtn(x.mint, x.symbol)}</span></div></div></td>
       <td class="l"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span></td>
       <td class="mono">${price(x.priceUsd)}</td><td class="mut">${age(x.createdAt)}</td>
       <td>${tot ? `<div class="txbar"><span>${tot.toLocaleString()}</span><span class="b"><i style="width:${(b / tot * 100).toFixed(0)}%"></i></span></div>` : '<span class="dim">—</span>'}</td>
@@ -657,7 +658,8 @@ async function tokenPage(mint, chain = 'solana') {
   <div class="card scorecard" id="scoreCard">${scoreSkel}</div>
   ${isSol ? `<div class="card buycard" id="buyCard"><div class="buy-head"><div><b>⚡ Buy ${esc(d.symbol || 'this token')} here</b><div class="dim">Swap SOL → ${esc(d.symbol || 'token')} with Jupiter. Your wallet signs; we never hold funds.</div></div><button class="btn pri" id="buyOpen">Open swap</button></div>
     <div id="jupiter-plugin" class="buy-body" hidden></div>
-    <div class="buy-foot dim"><span id="buyFee"></span> <a href="${L.jup}" target="_blank" rel="noopener">Buy on Jupiter ↗</a></div></div>` : ''}
+    <div class="buy-foot dim"><span id="buyFee"></span> <a href="${L.jup}" target="_blank" rel="noopener">Buy on Jupiter ↗</a></div></div>
+  <div id="exitSlot"></div>` : ''}
   <div class="kpis">
     <div class="kpi"><small>Market cap</small><b>${usd(m.mcap ?? d.pump?.usdMcap)}</b><span class="dim" style="font-size:12px">FDV ${usd(m.fdv)}</span></div>
     <div class="kpi"><small>Liquidity</small><b>${usd(m.liquidity)}</b><span class="dim" style="font-size:12px">${m.liquidity && m.mcap ? 'Liq/MCap ' + (m.liquidity / m.mcap * 100).toFixed(1) + '%' : '&nbsp;'}</span></div>
@@ -718,7 +720,7 @@ async function tokenPage(mint, chain = 'solana') {
     toast(`Alert set: ${esc(d.symbol)} ${$('#adir').value} ${price(p)}`);
   };
   loadScore(mint, chain);
-  if (isSol) setupBuy(mint, d.symbol);
+  if (isSol) { setupBuy(mint, d.symbol); setupExits(mint, d.symbol, m.priceUsd, L.jup); }
   if (isSol) { loadSmartToken(mint); const smi = setInterval(() => loadSmartToken(mint), 30000); cleanup.push(() => clearInterval(smi)); }
   let curPool = m.pair, trIv = 0;
   const startPool = (pool, px) => {
@@ -750,6 +752,15 @@ function ogCard(o, sym, flipped) {
     <dt>Same-name tokens indexed</dt><dd>${o.size}</dd></dl>${note}`;
 }
 // ---------- buy on site ----------
+// exits card (TP/SL, trailing, limit) — module loaded only on token pages
+async function setupExits(mint, sym, priceUsd, jupUrl) {
+  try {
+    const EX = await import('./exits.js');
+    const slot = $('#exitSlot'); if (!slot) return;
+    slot.outerHTML = EX.card(sym);
+    EX.setup({ mint, symbol: sym, priceUsd: +priceUsd || null, jupUrl, cleanup });
+  } catch (e) { console.warn('exits', e); }
+}
 function setupBuy(mint, sym) {
   const card = $('#buyCard'); if (!card) return;
   cleanup.push(() => BUY.unmount());
@@ -915,13 +926,13 @@ async function advertisePage() {
   <section class="hero"><div><h1>Advertise with On the Scope</h1><p>Same placements as DexScreener at a fraction of the price — paid in USDC or SOL with Solana Pay, verified on-chain. Every paid placement is labelled.</p></div></section>
   <div class="plans">
     <div class="plan feat"><div class="pn">${SCOPE_ICO} Scoped</div><div class="pp">$${pr.scope.priceUsd}<small> one-time</small></div><div class="pv">DexScreener Enhanced Token Info: <s>$${DS_PRICES.scope}</s> · save ${Math.round((1 - pr.scope.priceUsd / DS_PRICES.scope) * 100)}%</div>
-      <ul><li>Logo, banner & description on the token page</li><li>Website / X / Telegram links</li><li>“Scoped” crosshair badge in every table</li><li>Reviewed by us before it goes live (usually &lt; 12h)</li></ul><button class="btn pri" data-pick="scope">Get Scoped</button></div>
+      <ul><li>Logo, banner & description on the token page</li><li>Website / X / Telegram links</li><li>“Scoped” crosshair badge in every table</li><li>Reviewed by us before it goes live (usually &lt; 12h)</li><li>𝕏 “Newly Scoped” post from @OnTheScope + a ✅ Scoped line whenever our bot scores your CA</li></ul><button class="btn pri" data-pick="scope">Get Scoped</button></div>
     ${['boost10', 'boost30', 'boost100'].map(id => `<div class="plan"><div class="pn">⚡ ${pr[id].name}</div><div class="pp">$${pr[id].priceUsd}<small> / ${pr[id].hours}h</small></div><div class="pv">DexScreener ${pr[id].boosts}x: <s>$${DS_PRICES[id]}</s> / ${DS_HOURS[id]}h · save ${Math.round((1 - pr[id].priceUsd / DS_PRICES[id]) * 100)}%</div>
-      <ul><li>Pinned higher in 🔥 Trending, ordered by active boosts</li><li>⚡ “Promoted” label on rows and token page</li><li>Stacks with other boosts</li><li>Starts instantly after on-chain confirmation</li></ul><button class="btn" data-pick="${id}">Boost ${pr[id].boosts}x</button></div>`).join('')}
+      <ul><li>One of ${P.adSlots ?? 3} labelled AD slots pinned on top of 🔥 Trending</li><li>Only for tokens with a Scope Score of ${P.boostMinScore ?? 50}+</li><li>⚡ “Promoted” label on rows and token page</li><li>Stacks with other boosts</li><li>Starts instantly after on-chain confirmation</li></ul><button class="btn" data-pick="${id}">Boost ${pr[id].boosts}x</button></div>`).join('')}
   </div>
   <div class="card" style="margin:16px 0"><h3>Price comparison</h3><div class="scroll"><table style="min-width:560px"><thead><tr><th class="l">Product</th><th>On the Scope</th><th>DexScreener*</th><th>You save</th></tr></thead><tbody>
     ${['scope', 'boost10', 'boost30', 'boost100'].map(id => `<tr><td class="l">${id === 'scope' ? 'Scoped (vs Enhanced Token Info)' : pr[id].name + ' · ' + pr[id].hours + 'h'}</td><td class="up" style="font-weight:700">$${pr[id].priceUsd}</td><td class="mut">$${DS_PRICES[id]}${DS_HOURS[id] ? ' · ' + DS_HOURS[id] + 'h' : ''}</td><td>${Math.round((1 - pr[id].priceUsd / DS_PRICES[id]) * 100)}%</td></tr>`).join('')}
-  </tbody></table></div><p class="dim" style="font-size:11px;margin:10px 0 0">*DexScreener Enhanced Token Info lists at $299. DexScreener only shows boost prices inside its Boost dialog; boost figures here are the commonly reported prices — check dexscreener.com for current pricing. Boosts are not available for tokens our scanner rates high-risk. Payments are non-refundable once a placement is live; rejected Scoped submissions are refunded to the paying wallet.</p></div>
+  </tbody></table></div><p class="dim" style="font-size:11px;margin:10px 0 0">*DexScreener Enhanced Token Info lists at $299. DexScreener only shows boost prices inside its Boost dialog; boost figures here are the commonly reported prices — check dexscreener.com for current pricing. Boosts are only sold to tokens with a Scope Score of ${P.boostMinScore ?? 50}+ that our scanner doesn't rate high-risk; a boosted token whose score later drops below ${P.boostMinScore ?? 50} loses its pinned slot (the boost runs out normally). Trending itself is always ranked by organic activity + Scope Score. Payments are non-refundable once a placement is live; rejected Scoped submissions are refunded to the paying wallet.</p></div>
   <div class="card" id="orderCard"><h3>Place an order</h3>
     <form id="orderForm" class="oform">
       <label>Product<select name="product">${P.products.map(p => `<option value="${p.id}" ${p.id === sel0 ? 'selected' : ''}>${esc(p.name)} — $${p.priceUsd}${p.hours ? ' / ' + p.hours + 'h' : ''}</option>`).join('')}</select></label>
@@ -936,7 +947,14 @@ async function advertisePage() {
       <button class="btn pri full">Continue to payment →</button><div id="oerr" class="dn full"></div>
     </form></div>`;
   const form = $('#orderForm');
-  const sync = () => { $('#scopeFields').style.display = form.product.value === 'scope' ? '' : 'none'; };
+  let chk = 0;
+  const sync = () => {
+    $('#scopeFields').style.display = form.product.value === 'scope' ? '' : 'none';
+    const m = form.mint.value.trim(), id = ++chk; $('#oerr').textContent = '';
+    if (form.product.value === 'scope' || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(m)) return;
+    api('/api/boost-check?mint=' + m).then(c => { if (id === chk && c.score != null && !c.eligible) $('#oerr').textContent = `Boosts need a Scope Score of ${c.min}+ — ${c.symbol ? '$' + c.symbol : 'this token'} scores ${c.score}/100.`; }).catch(() => {});
+  };
+  form.mint.onchange = sync;
   form.product.onchange = sync; sync();
   app.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { form.product.value = b.dataset.pick; sync(); $('#orderCard').scrollIntoView({ behavior: 'smooth' }); form.mint.focus(); });
   form.onsubmit = async e => {

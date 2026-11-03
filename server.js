@@ -6,6 +6,9 @@ const { scoreReport } = require('./lib/safety');
 const { createOG } = require('./lib/og');
 const chains = require('./lib/chains');
 const pay = require('./lib/payments');
+const { trustRank, boostMinScore } = require('./lib/trust');
+const BOOST_MIN_SCORE = boostMinScore(process.env);
+const AD_SLOTS = Math.max(0, Math.min(10, Math.round(+(process.env.TRENDING_AD_SLOTS ?? 3)) || 0));
 const crypto = require('crypto');
 const QRCode = require('qrcode');
 const scoreLib = require('./lib/score');
@@ -178,7 +181,9 @@ const lists = {
   trending: () => cached('list:trending', 60e3, async () => {
     const [gt, b] = await Promise.all([geckoPools('trending_pools', 2), boostedMints()]);
     const base = [...gt, ...b.boosted.map(mint => ({ mint }))];
-    return (await enrich(base)).filter(r => r.pair);
+    const gtSet = new Set(gt.map(r => r.mint));
+    // dsOnly = in the list only because it paid for DexScreener boosts (gets no ranking help from that)
+    return (await enrich(base)).filter(r => r.pair).map(r => (gtSet.has(r.mint) ? r : { ...r, dsOnly: true }));
   }),
   new: () => cached('list:new', 45e3, async () => {
     const [gt, b] = await Promise.all([geckoPools('new_pools', 2), boostedMints()]);
@@ -321,7 +326,7 @@ async function scoreFor(chain, addr, { full = true, prio = PRIO.low } = {}) {
   return pending;
 }
 // ---------- X reply bot (disabled unless X_API_KEY/X_API_SECRET/X_ACCESS_TOKEN/X_ACCESS_SECRET are set) ----------
-const { createXBot } = require('./lib/xbot');
+const { createXBot, handleFromUrl } = require('./lib/xbot');
 async function resolveToken({ address, chain, viaPair }) {
   // a DexScreener link may carry a pair address — map it to the base token
   if (viaPair && chain) {
@@ -334,7 +339,19 @@ async function resolveToken({ address, chain, viaPair }) {
   return best ? { chain: best.chainId, address: best.baseToken.address } : null;
 }
 const publicBase = () => String(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || 'https://onthescope.fun').replace(/\/+$/, '');
-const xbot = createXBot({ scoreFor: (c, a) => scoreFor(c, a, { full: true, prio: PRIO.normal }), resolveChain: resolveToken, baseUrl: publicBase, stateFile: process.env.XBOT_STATE_FILE || path.join(__dirname, 'data', 'xbot-state.json') });
+// what the bot adds under the score: copycat status (OG vs VAMP), tracked KOL buys, and the $69 Scoped listing
+async function xIntel(chain, mint) {
+  if (chain !== 'solana') return {};
+  let o = og.peek(mint);
+  if (!o) {
+    const p = (await dexTokens([mint]).catch(() => new Map())).get(mint);
+    if (p?.baseToken?.name) o = await Promise.race([og.check({ mint, name: p.baseToken.name, symbol: p.baseToken.symbol }).catch(() => null), new Promise(r => setTimeout(() => r(null), 5000))]);
+  }
+  const sm = smartFor(mint);
+  const sc = pay.scopeInfo(mint);
+  return { og: o || null, kols: { buyers: sm?.buyers || [], callers: sm?.callers || [], tracked: SMART.length > 0 }, scoped: sc ? { handle: handleFromUrl(sc.twitter) } : null };
+}
+const xbot = createXBot({ scoreFor: (c, a) => scoreFor(c, a, { full: true, prio: PRIO.normal }), resolveChain: resolveToken, baseUrl: publicBase, intelFor: xIntel, scopedQueue: () => pay.recentScoped(3 * 86400e3).filter(o => !o.announcedAt), markAnnounced: id => pay.markAnnounced(id), stateFile: process.env.XBOT_STATE_FILE || path.join(__dirname, 'data', 'xbot-state.json') });
 xbot.start();
 
 // ---------- wallet tracker + alerts (web push / Telegram) ----------
@@ -520,11 +537,17 @@ app.get('/api/list/:kind', async (req, res) => {
   try {
     let rows = await fn();
     const boosts = pay.activeBoosts(), scoped = pay.scopedMints();
+    let ranked = null;
     if (req.params.kind === 'trending') {
-      // paid boosts raise ranking: promoted tokens are pinned on top (ordered by active boosts) and clearly labelled
+      // "Trending you can trust": organic activity + Scope Score decide the order. Paid boosts only get up to
+      // TRENDING_AD_SLOTS labelled slots on top, and only while the token passes BOOST_MIN_SCORE. ?rank=raw = source order.
       const missing = Object.keys(boosts).filter(m => !rows.some(r => r.mint === m));
-      if (missing.length) { const ds = await dexTokens(missing); rows = [...[...ds.values()].map(fromDex), ...rows]; }
-      rows = rows.map((r, i) => ({ r, i })).sort((a, b) => (boosts[b.r.mint] || 0) - (boosts[a.r.mint] || 0) || a.i - b.i).map(x => x.r);
+      if (missing.length) { const ds = await dexTokens(missing); rows = [...[...ds.values()].map(r => ({ ...fromDex(r), adOnly: true })), ...rows]; }
+      if (req.query.rank !== 'raw') {
+        ranked = trustRank(rows.map(r => withIntel(r, boosts, scoped)), { minScore: BOOST_MIN_SCORE, promoSlots: AD_SLOTS })
+          .filter(r => !r.adOnly || r.pinned); // a boosted token that isn't trending organically only shows in an ad slot
+        rows = ranked;
+      } else rows = rows.filter(r => !r.adOnly);
     }
     if (req.params.kind === 'new') {
       // fold in launches the live feed saw that the 45s-cached GeckoTerminal list hasn't caught up with yet
@@ -535,7 +558,7 @@ app.get('/api/list/:kind', async (req, res) => {
     for (const r of rows) og.sample(r.mint, r.mcap ?? r.fdv);
     enqueue(rows.slice(0, 120).map(r => r.mint)); enqueueOG(rows.slice(0, 120)); enqueueScore(rows.slice(0, 120).map(r => r.mint));
     res.set('Cache-Control', 'no-cache');
-    res.json({ updatedAt: store.get('list:' + req.params.kind)?.at || Date.now(), rows: rows.map(r => withIntel(r, boosts, scoped)) });
+    res.json({ updatedAt: store.get('list:' + req.params.kind)?.at || Date.now(), ...(req.params.kind === 'trending' ? { rank: ranked ? 'trust' : 'raw', boostMinScore: BOOST_MIN_SCORE } : {}), rows: ranked || rows.map(r => withIntel(r, boosts, scoped)) });
   } catch (e) { fail(res, e); }
 });
 app.get('/api/safety', (req, res) => {
@@ -758,7 +781,13 @@ app.post('/api/rpc', express.json({ limit: '20kb' }), async (req, res) => {
 // ---------- monetization: Scoped + Boosts (Solana Pay) ----------
 app.use('/api/orders', express.json({ limit: '20kb' }));
 app.use('/api/admin', express.json({ limit: '5kb' }));
-app.get('/api/pricing', (req, res) => ok(res, { recipient: pay.RECIPIENT, products: Object.values(pay.PRODUCTS) }, 300));
+app.get('/api/pricing', (req, res) => ok(res, { recipient: pay.RECIPIENT, products: Object.values(pay.PRODUCTS), boostMinScore: BOOST_MIN_SCORE, adSlots: AD_SLOTS, xbot: xbot.status.enabled }, 300));
+app.get('/api/boost-check', async (req, res) => {
+  const mint = String(req.query.mint || ''); if (!isMint(mint)) return fail(res, new Error('Invalid token address'), 400);
+  const sc = await scoreFor('solana', mint, { full: false, prio: PRIO.high }).catch(() => null);
+  res.set('Cache-Control', 'no-store');
+  res.json({ mint, score: sc?.total ?? null, symbol: sc?.symbol || null, min: BOOST_MIN_SCORE, eligible: sc?.total != null && sc.total >= BOOST_MIN_SCORE });
+});
 const httpsUrl = (v, max = 300) => { if (!v) return null; const t = String(v).trim().slice(0, max); try { const u = new URL(t); return u.protocol === 'https:' ? u.toString() : false; } catch { return false; } };
 app.post('/api/orders', async (req, res) => {
   try {
@@ -780,6 +809,10 @@ app.post('/api/orders', async (req, res) => {
       // we don't sell visibility to tokens our own scanner rates high-risk
       const sf = await safetyFor(mint).catch(() => null);
       if (sf && !sf.unavailable && sf.grade === 'danger') return fail(res, new Error(`Boosts are not available for tokens with a high-risk safety score (${sf.score}/100)`), 400);
+      // ...and boosts are only sold to tokens that pass the Scope Score bar ("trending you can trust")
+      const sc = await scoreFor('solana', mint, { full: false, prio: PRIO.high }).catch(() => null);
+      if (!sc || sc.total == null) return fail(res, new Error('Could not compute the Scope Score for this token right now — try again in a minute'), 503);
+      if (sc.total < BOOST_MIN_SCORE) return fail(res, new Error(`Boosts are only available for tokens with a Scope Score of ${BOOST_MIN_SCORE}+ (this token: ${sc.total}/100)`), 400);
     }
     res.json(await pay.createOrder(product, mint, details));
   } catch (e) { fail(res, e); }
@@ -809,8 +842,25 @@ app.post('/api/admin/orders/:id/recheck', admin, async (req, res) => { try { res
 // ---------- buy on site (Jupiter Plugin) ----------
 const JUP = require('./lib/jupiter').jupiterConfig(process.env, console);
 console.log(`[jupiter] plugin ${JUP.plugin ? 'on' : 'off'}, referral ${JUP.referralAccount ? JUP.feeBps + ' bps' : 'off (set JUP_REFERRAL_ACCOUNT)'}`);
-app.get('/api/config', (req, res) => ok(res, { jup: JUP }, 300));
-app.get('/api/health', (req, res) => res.json({ ok: true, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, pausedUntil: xbot.status.pausedUntil }, alerts: { subscribers: alerts.status.subscribers, vapid: alerts.status.vapid, telegram: alerts.status.telegram, sent: alerts.status.sent, lastTick: alerts.status.lastTick }, wallets: tracker.status, presence: presence.summary(), cacheEntries: store.size }));
+// ---------- exits: TP/SL, trailing stops & limit orders (Jupiter Trigger V2; off until JUP_API_KEY is set) ----------
+const EXITS = require('./lib/exits').createExits({
+  env: process.env, fallbackWallet: pay.RECIPIENT, rpc,
+  solUsd: async () => { if (!SOL_USD) await refreshSol(); return SOL_USD; },
+  priceOf: async mint => num((await dexTokens([mint])).get(mint)?.priceUsd) || null,
+  decimalsOf: mint => mint === 'So11111111111111111111111111111111111111112' ? 9 : cached('decimals:' + mint, 864e5, async () => (await rpc('getTokenSupply', [mint]))?.value?.decimals),
+});
+console.log(`[exits] ${EXITS.config.enabled ? `on, fee ${EXITS.config.feeBps} bps -> ${EXITS.config.feeWallet || 'none'}` : 'off (set JUP_API_KEY)'}`);
+app.use('/api/exits', EXITS.router);
+app.get('/api/config', (req, res) => ok(res, { jup: JUP, exits: EXITS.public }, 300));
+// which optional settings are present (booleans only — never values)
+const has = k => !!(process.env[k] || '').trim();
+const CONFIG_STATUS = () => ({
+  PUBLIC_URL: has('PUBLIC_URL'), SOLANA_RPC: has('SOLANA_RPC'), ADMIN_PASSWORD: has('ADMIN_PASSWORD'), PAY_WALLET: has('PAY_WALLET'),
+  JUP_REFERRAL_ACCOUNT: !!JUP.referralAccount, JUP_API_KEY: EXITS.config.enabled, TELEGRAM_ALERTS_BOT_TOKEN: has('TELEGRAM_ALERTS_BOT_TOKEN'),
+  X_API_KEY: has('X_API_KEY'), X_API_SECRET: has('X_API_SECRET'), X_ACCESS_TOKEN: has('X_ACCESS_TOKEN'), X_ACCESS_SECRET: has('X_ACCESS_SECRET'),
+  VAPID: alerts.status.vapid, BOOST_MIN_SCORE, TRENDING_AD_SLOTS: AD_SLOTS, EXIT_FEE_BPS: EXITS.config.enabled ? EXITS.config.feeBps : null,
+});
+app.get('/api/health', (req, res) => res.json({ ok: true, config: CONFIG_STATUS(), exits: { enabled: EXITS.config.enabled, feeBps: EXITS.config.feeBps }, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, announced: xbot.status.announced, pausedUntil: xbot.status.pausedUntil }, alerts: { subscribers: alerts.status.subscribers, vapid: alerts.status.vapid, telegram: alerts.status.telegram, sent: alerts.status.sent, lastTick: alerts.status.lastTick }, wallets: tracker.status, presence: presence.summary(), cacheEntries: store.size }));
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/javascript').sendFile(path.join(__dirname, 'public', 'sw.js')); });

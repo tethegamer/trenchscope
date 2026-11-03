@@ -52,3 +52,50 @@ test('polls mentions, skips backlog, replies once with link', async () => {
   assert.match(calls.filter(c => c.url.includes('/mentions')).pop().url, /since_id=5/);
   assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).sinceId, '9');
 });
+
+const { announceText, handleFromUrl } = require('../lib/xbot');
+const len = t => t.replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length;
+const intel = { og: { status: 'vamp', og: { symbol: 'BONK' }, vv: true, ratio: 1.6 }, kols: { buyers: ['Ansem', 'Cented', 'Orangie', 'Gake'], tracked: true }, scoped: { handle: '@bonk_inu' } };
+test('reply adds OG/VAMP, KOL buys and Scoped lines, still <= 280', () => {
+  const t = replyText(sample, 'https://onthescope.fun/token/' + BONK, intel);
+  assert.match(t, /🧛 VAMP: copycat of \$BONK/);
+  assert.match(t, /KOL buys \(24h\): Ansem, Cented, Orangie \+1/);
+  assert.match(t, /✅ Scoped project · @bonk_inu/);
+  assert.ok(len(t) <= 280);
+  const og = replyText(sample, 'https://a.b/t', { og: { status: 'og', vamps: 3 } });
+  assert.match(og, /👑 OG: first to graduate with this name \(3 copycats\)/);
+  // overflow drops the least important lines first: score + copycat + KOL survive
+  const big = replyText({ ...sample, reason: 'r'.repeat(200), coin: { ...sample.coin, caps: ['c'.repeat(120)] } }, 'https://a.b/t', intel);
+  assert.ok(len(big) <= 280); assert.match(big, /Scope Score/); assert.match(big, /VAMP/); assert.match(big, /KOL buys/);
+  assert.ok(!/r{50}/.test(big));
+});
+test('handle from Scoped X url', () => {
+  assert.equal(handleFromUrl('https://x.com/bonk_inu'), '@bonk_inu');
+  assert.equal(handleFromUrl('https://twitter.com/bonk_inu/status/1'), '@bonk_inu');
+  assert.equal(handleFromUrl('https://x.com/i/communities/123'), null);
+  assert.equal(handleFromUrl('https://evil.com/x.com/a'), null);
+});
+test('announces each new Scoped listing once (counts toward the cap)', async () => {
+  const posts = [];
+  const json = d => ({ ok: true, status: 200, headers: new Map([['x-rate-limit-remaining', '100']]), json: async () => d });
+  const fake = async (url, opt) => {
+    if (url.endsWith('/users/me')) return json({ data: { id: '42', username: 'OnTheScope' } });
+    if (url.includes('/mentions')) return json({ meta: {} });
+    if (url.endsWith('/tweets')) { posts.push(JSON.parse(opt.body)); return json({ data: { id: '11' } }); }
+    throw new Error('unexpected ' + url);
+  };
+  const stateFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'xb')), 's.json');
+  const mk = () => createXBot({ env: { X_API_KEY: 'k', X_API_SECRET: 's', X_ACCESS_TOKEN: 't', X_ACCESS_SECRET: 'a' }, fetchImpl: fake, stateFile, log: { log() {}, warn() {} },
+    scoreFor: async (c, a) => ({ ...sample, address: a }), resolveChain: async () => null, baseUrl: () => 'https://ots.example',
+    intelFor: async () => intel, scopedQueue: () => [{ id: 'o1', mint: BONK }] });
+  const b = mk();
+  assert.equal(await b.announceNext(), 'announced');
+  assert.equal(await b.announceNext(), 'none');
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].text, /Newly Scoped on On the Scope: \$Bonk @bonk_inu/);
+  assert.match(posts[0].text, new RegExp('https://ots.example/token/' + BONK));
+  assert.ok(len(posts[0].text) <= 280);
+  assert.equal(await mk().announceNext(), 'none'); // persisted across restarts
+  assert.equal(b.status.announced, 1);
+  assert.ok(announceText({ ...sample, symbol: 'Z' }, 'https://a.b/t', {}).includes('$Z'));
+});
