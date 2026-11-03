@@ -374,3 +374,6 @@ tr.pinned{background:linear-gradient(90deg,rgba(255,209,102,.12),transparent 55%
 .exform .full{grid-column:1/-1}.exnote{font-size:11px;line-height:1.5}.exbal{font-size:11px}.exbal a{color:var(--b);margin-left:4px}
 #exOrders h4{margin:14px 0 6px;font-size:13px}.exlist{display:flex;flex-direction:column;gap:6px}.exrow{display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:13px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .wlist{display:flex;flex-direction:column;gap:8px;margin-top:10px}.wlist .btn{display:flex;gap:8px;align-items:center;justify-content:flex-start}
+#scModal .x{align-self:flex-end;margin-bottom:-28px}
+.qbuy{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:10px 0 4px;font-size:12px}.qbuy .toggle{padding:5px 10px}
+.trackline{font-size:12px;margin:4px 2px 8px}.trackline a{color:var(--b)}

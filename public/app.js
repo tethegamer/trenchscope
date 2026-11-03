@@ -341,14 +341,17 @@ async function openProfile() {
 
 // ---------- list page ----------
 const TABS = [
-  { id: 'trending', label: '🔥 Trending', desc: 'Trending you can trust: ranked by organic on-chain activity + Scope Score, not by who paid. Paid slots are pinned on top and labelled AD (only tokens scoring well can buy one); DexScreener boosts get no lift here.' },
+  { id: 'trending', label: '🔥 Trending', desc: 'Trending you can trust: ranked by organic on-chain activity + Scope Score, not by who paid. Paid slots are pinned on top and labelled AD (only tokens scoring well can buy one); DexScreener boosts get no lift here. 🧹 Clean (on by default) hides bundled, sniper-heavy and copycat tokens.' },
   { id: 'new', label: '<span class="dot"></span> ✨ New pairs', desc: 'Every new coin the moment it launches: pump.fun &amp; LetsBonk launches stream in live, plus fresh DEX pools, newest first.' },
   { id: 'gainers', label: '🚀 Gainers', desc: 'Biggest 24h movers with at least $5K liquidity across tracked pairs.' },
   { id: 'callers', label: '📣 Top Callers', desc: '' },
   { id: 'pumpfun', label: '<span class="dot"></span> Pump.fun live', desc: 'Coins currently live-streaming on pump.fun (bonding curve & migrated).' },
   { id: 'watch', label: '★ Watchlist', desc: 'Your starred tokens — saved locally in this browser.' },
 ];
-const DEF = { chain: 'solana', tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, ogOnly: false, vvOnly: false, smartOnly: false, sort: null, dir: -1 };
+const DEF = { chain: 'solana', tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, ogOnly: false, vvOnly: false, smartOnly: false, clean: true, sort: null, dir: -1 };
+// Clean Trending: same rules as lib/trust.js flagsOf (bundle cluster, snipers/RIGGED fairness, non-VV copycat)
+const cleanFlags = x => { const f = []; if (x.safety && !x.safety.unavailable && x.safety.bundled) f.push('bundle'); if (x.score && (x.score.sn >= 15 || x.score.cl === 'RIGGED')) f.push('sniper'); if (x.og && x.og.status === 'vamp' && !x.og.vv) f.push('copycat'); return f; };
+let CLEANED = null;
 let st = { ...DEF, ...LS.get('filters', {}) };
 const saveSt = () => LS.set('filters', st);
 let rows = [], safetyMap = {}, ogMap = {}, scoreMap = {}, smMap = {}, lastUpdated = 0;
@@ -403,6 +406,12 @@ function filtered() {
     if (st.ogOnly) r = r.filter(x => x.og && x.og.status === 'og');
     if (st.vvOnly) r = r.filter(x => x.og && x.og.vv);
     if (st.smartOnly) r = r.filter(x => smMap[x.mint]);
+    CLEANED = null;
+    if (st.tab === 'trending' && st.clean !== false) {
+      const c = { bundle: 0, sniper: 0, copycat: 0, n: 0 };
+      r = r.filter(x => { const f = cleanFlags(x); if (!f.length) return true; c.n++; f.forEach(k => c[k]++); return false; });
+      CLEANED = c;
+    }
   }
   if (st.sort) {
     const get = { price: x => x.priceUsd, age: x => -(x.createdAt || 0), m5: x => x.change?.m5, h1: x => x.change?.h1, h6: x => x.change?.h6, h24: x => x.change?.h24, vol: x => x.volume?.h24, liq: x => x.liquidity, mcap: x => x.mcap || x.fdv, txns: x => (x.txns?.h24?.buys || 0) + (x.txns?.h24?.sells || 0), safety: x => x.safety?.score ?? -1 }[st.sort];
@@ -430,7 +439,7 @@ function listPage() {
   <div class="stats" id="stats"></div></section>
   <nav class="tabs">${TABS.filter(t => st.chain === 'solana' || ['trending', 'new', 'gainers'].includes(t.id)).map(t => `<button class="tab ${t.id === st.tab ? 'on' : ''}" data-tab="${t.id}">${t.label}${t.id === 'watch' ? ` <span class="chip">${Object.keys(watch).length}</span>` : ''}</button>`).join('')}</nav>
   <div class="bar"><div class="filters">
-    ${st.chain === 'solana' ? `${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${tog('vvOnly', 'VV only')}${glossLink}${tog('smartOnly', '🧠 Smart money')}${tog('noBundle', 'Hide bundled')}` : ''}
+    ${st.chain === 'solana' ? `${tog('safeOnly', '🛡 Safe only')}${tog('ogOnly', '👑 OG only')}${tog('vvOnly', 'VV only')}${glossLink}${tog('smartOnly', '🧠 Smart money')}${tog('noBundle', 'Hide bundled')}${st.tab === 'trending' ? `<span title="Clean Trending (on by default): hides bundled launches, sniper-heavy / RIGGED coins and copycat VAMPs of an older OG. Turn off to see everything.">${tog('clean', '🧹 Clean')}</span>` : ''}` : ''}
     ${sel('liq', 'Liq ≥', [[0, 'Any'], [5000, '$5K'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [500000, '$500K']])}
     ${sel('vol', 'Vol 24h ≥', [[0, 'Any'], [10000, '$10K'], [50000, '$50K'], [100000, '$100K'], [1000000, '$1M']])}
     ${sel('mcapMin', 'MCap ≥', [[0, 'Any'], [10000, '$10K'], [100000, '$100K'], [1000000, '$1M'], [10000000, '$10M']])}
@@ -438,6 +447,7 @@ function listPage() {
     ${sel('age', 'Age ≤', [[0, 'Any'], [1, '1h'], [6, '6h'], [24, '24h'], [72, '3d'], [168, '7d']])}
     ${JSON.stringify({ ...st, tab: 0, sort: 0, dir: 0 }) !== JSON.stringify({ ...DEF, tab: 0, sort: 0, dir: 0 }) ? `<button class="toggle" id="reset">Reset</button>` : ''}
   </div><div class="upd" id="upd"></div></div>
+  ${st.chain === 'solana' && st.tab === 'trending' ? '<div class="trackline dim" id="trackLine"></div>' : ''}
   <div class="tablewrap desk"><div class="scroll"><table><thead><tr>${head()}</tr></thead><tbody id="tb">${skeleton()}</tbody></table></div></div>
   <div class="cards" id="cards">${'<div class="c"><div class="skel" style="grid-column:1/-1;height:40px"></div></div>'.repeat(6)}</div>`;
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { if (b.dataset.tab === 'callers') return go('/callers'); st.tab = b.dataset.tab; st.sort = null; saveSt(); listPage(); });
@@ -445,6 +455,12 @@ function listPage() {
   app.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { st[b.dataset.t] = !st[b.dataset.t]; saveSt(); listPage(); });
   const rs = $('#reset'); if (rs) rs.onclick = () => { st = { ...DEF, tab: st.tab }; saveSt(); listPage(); };
   app.querySelectorAll('th[data-s]').forEach(th => th.onclick = () => { const k = th.dataset.s; if (st.sort === k) st.dir *= -1; else { st.sort = k; st.dir = -1; } saveSt(); listPage(); });
+  if ($('#trackLine')) fetch('/api/track-record').then(r => r.json()).then(t => {
+    const el = $('#trackLine'); if (!el) return; const b = t.buckets || {}; const h = b.high?.h24, l = b.low?.h24;
+    el.innerHTML = h?.n >= 10 && l?.n >= 10
+      ? `📊 <b>Score track record</b> (24h after first sighting): Scope Score 70+ rugged <b class="up">${h.rugPct}%</b> (n=${h.n}) vs under 45 <b class="dn">${l.rugPct}%</b> (n=${l.n}). <a href="/api/track-record" target="_blank" rel="noopener">Raw data</a>`
+      : `📊 <b>Score track record</b>: ${t.tracked || 0} tokens logged at first sighting; 24h / 7d rug rates by score are published at <a href="/api/track-record" target="_blank" rel="noopener">/api/track-record</a> as they mature.`;
+  }).catch(() => {});
   load(true);
   liveSync(); cleanup.push(liveStop);
   const iv = setInterval(() => load(false), 30000); cleanup.push(() => clearInterval(iv));
@@ -534,7 +550,7 @@ function draw() {
   const safeN = scanned.filter(x => safetyMap[x.mint].grade === 'safe').length;
   const bund = scanned.filter(x => safetyMap[x.mint].bundled).length;
   $('#stats').innerHTML = rows.length ? (st.chain === 'solana' ? `<div class="stat"><small>Pairs</small><b>${rows.length}</b></div><div class="stat"><small>Scanned</small><b>${scanned.length}</b></div><div class="stat"><small>Safe ≥80</small><b class="up">${safeN}</b></div><div class="stat"><small>Bundled</small><b class="dn">${bund}</b></div>` : `<div class="stat"><small>Pairs</small><b>${rows.length}</b></div><div class="stat"><small>Volume 24h</small><b>${usd(rows.reduce((s, x) => s + (x.volume?.h24 || 0), 0))}</b></div><div class="stat"><small>Liquidity</small><b>${usd(rows.reduce((s, x) => s + (x.liquidity || 0), 0))}</b></div>`) : '';
-  if (st.tab === 'new' && LIVE.on) { renderLive(r.length); } else $('#upd').innerHTML = lastUpdated ? `<span class="live"></span> ${r.length} shown · updated ${age(lastUpdated)} ago · auto-refresh 30s` : '';
+  if (st.tab === 'new' && LIVE.on) { renderLive(r.length); } else $('#upd').innerHTML = lastUpdated ? `<span class="live"></span> ${r.length} shown${CLEANED && CLEANED.n ? ` · <span title="Clean Trending hid ${CLEANED.bundle} bundled, ${CLEANED.sniper} sniper-heavy/RIGGED and ${CLEANED.copycat} copycat tokens">🧹 ${CLEANED.n} hidden</span>` : ''} · updated ${age(lastUpdated)} ago · auto-refresh 30s` : '';
   if (!r.length) {
     const msg = st.smartOnly && !Object.keys(smMap).length ? 'No smart-money buys tracked in the last 24h yet — the tracker checks 123 public caller & KOL wallets + your wallets every minute or so.' : st.tab === 'watch' && !Object.keys(watch).length ? 'Your watchlist is empty. Tap ☆ on any token to track it here.' : st.safeOnly && scanned.length < rows.length ? 'No tokens pass the filters yet — safety scans are still running, give it a few seconds.' : 'No tokens match these filters.';
     tb.innerHTML = `<tr><td colspan="14" class="empty">${msg}</td></tr>`; $('#cards').innerHTML = `<div class="empty">${msg}</div>`; return;
@@ -652,11 +668,13 @@ async function tokenPage(mint, chain = 'solana') {
     <a class="btn" href="${L.rug}" target="_blank" rel="noopener">RugCheck ↗</a>` : (exp ? `<a class="btn" href="${esc(exp.url)}" target="_blank" rel="noopener">${esc(exp.name)} ↗</a>` : '')}
     ${d.pump ? `<a class="btn" href="${L.pump}" target="_blank" rel="noopener">pump.fun ↗</a>` : ''}
     <button class="btn" id="shareBtn" type="button">🔗 Share</button>
+    ${isSol ? '<button class="btn" id="scBtn" type="button" title="Shareable 1200×675 image: Scope Score, bundle/sniper, OG/VAMP and KOL buys">📸 Scope card</button>' : ''}
     ${isSol ? `<a class="btn gold" href="/advertise?mint=${mint}" data-link>${sc ? '⚡ Boost' : SCOPE_ICO + ' Get Scoped / Boost'}</a>` : ''}
   </div>
   ${isSol ? '<div class="smstrip" id="smStrip"></div>' : ''}
   <div class="card scorecard" id="scoreCard">${scoreSkel}</div>
   ${isSol ? `<div class="card buycard" id="buyCard"><div class="buy-head"><div><b>⚡ Buy ${esc(d.symbol || 'this token')} here</b><div class="dim">Swap SOL → ${esc(d.symbol || 'token')} with Jupiter. Your wallet signs; we never hold funds.</div></div><button class="btn pri" id="buyOpen">Open swap</button></div>
+    <div class="qbuy" id="qbuy"><span class="dim">Quick buy</span>${[0.1, 0.25, 0.5, 1, 2].map(a => `<button type="button" class="toggle${+LS.get('buyAmt', 0) === a ? ' on' : ''}" data-qb="${a}">${a} SOL</button>`).join('')}</div>
     <div id="jupiter-plugin" class="buy-body" hidden></div>
     <div class="buy-foot dim"><span id="buyFee"></span> <a href="${L.jup}" target="_blank" rel="noopener">Buy on Jupiter ↗</a></div></div>
   <div id="exitSlot"></div>` : ''}
@@ -705,6 +723,7 @@ async function tokenPage(mint, chain = 'solana') {
   $('#pbig').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#pbig').click(); } };
   app.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = 'Copied ✓'; setTimeout(() => (b.textContent = 'Copy CA'), 1500); });
   if ($('#wbtn')) $('#wbtn').onclick = () => { toggleWatch({ mint, symbol: d.symbol, icon: d.icon }); $('#wbtn').textContent = isWatched(mint) ? '★ Watching' : '☆ Watchlist'; };
+  if ($('#scBtn')) $('#scBtn').onclick = async () => { const b = $('#scBtn'); b.disabled = true; b.textContent = 'Drawing…'; try { const SC = await import('./scopecard.js'); await SC.openScopeCard({ mint, symbol: d.symbol, name: d.name, safety: d.safety, og: d.og, mcap: m.mcap ?? m.fdv, liq: m.liquidity }); } catch (e) { toast('Could not draw the card: ' + esc(e.message)); } finally { b.disabled = false; b.textContent = '📸 Scope card'; } };
   if ($('#shareBtn')) $('#shareBtn').onclick = async () => {
     const url = location.origin + (isSol ? `/token/${mint}` : `/token/${chain}/${encodeURIComponent(mint)}`);
     if (navigator.share) { try { await navigator.share({ title: `${d.symbol || short(mint)} — On the Scope`, url }); return; } catch {} }
@@ -770,16 +789,21 @@ function setupBuy(mint, sym) {
     if (scroll) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (opened) return; opened = true;
     const body = $('#jupiter-plugin'), btn = $('#buyOpen');
-    body.hidden = false; body.innerHTML = '<div class="skel" style="height:420px"></div>'; btn.textContent = 'Loading…'; btn.disabled = true;
+    body.hidden = false; body.innerHTML = '<div class="skel" style="height:420px"></div>'; if (btn) { btn.textContent = 'Loading…'; btn.disabled = true; }
     try {
       body.innerHTML = '';
-      await BUY.mountBuy('jupiter-plugin', { mint, onSuccess: tx => toast(`✓ Bought ${esc(sym || '')} · <a href="https://solscan.io/tx/${esc(tx)}" target="_blank" rel="noopener" style="color:var(--b)">view tx</a>`) });
-      btn.remove(); LS.set('buyOpen', true);
+      await BUY.mountBuy('jupiter-plugin', { mint, amount: LS.get('buyAmt', 0), onSuccess: tx => toast(`✓ Bought ${esc(sym || '')} · <a href="https://solscan.io/tx/${esc(tx)}" target="_blank" rel="noopener" style="color:var(--b)">view tx</a>`) });
+      btn?.remove(); LS.set('buyOpen', true);
     } catch (e) {
-      opened = false; body.innerHTML = `<div class="mut" style="padding:10px 0">Couldn't load the swap here (${esc(e.message)}). Use <b>Buy on Jupiter ↗</b> below instead.</div>`; btn.textContent = 'Retry'; btn.disabled = false;
+      opened = false; body.innerHTML = `<div class="mut" style="padding:10px 0">Couldn't load the swap here (${esc(e.message)}). Use <b>Buy on Jupiter ↗</b> below instead.</div>`; if (btn) { btn.textContent = 'Retry'; btn.disabled = false; }
     }
   };
   $('#buyOpen').onclick = () => open(false);
+  card.querySelectorAll('[data-qb]').forEach(b => b.onclick = () => { // quick-buy preset: pre-fill the SOL amount and (re)open the swap
+    LS.set('buyAmt', +b.dataset.qb); card.querySelectorAll('[data-qb]').forEach(x => x.classList.toggle('on', x === b));
+    if (opened) { opened = false; BUY.unmount(); $('#jupiter-plugin').innerHTML = ''; }
+    open(false);
+  });
   BUY.config().then(c => {
     if (!c.plugin) { card.remove(); return; } // fall back to the plain jup.ag link
     const b = $('#buyBtn'); if (b) b.onclick = e => { if (e.metaKey || e.ctrlKey) return; e.preventDefault(); open(true); };

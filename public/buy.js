@@ -19,12 +19,13 @@ export async function feeNote() {
   return c.referralAccount ? `Includes a ${(c.feeBps / 100).toFixed(c.feeBps % 100 ? 2 : 1)}% On the Scope fee, plus Jupiter's own fee.` : '';
 }
 // mount the integrated swap form into #targetId, buying `mint` with SOL
-export async function mountBuy(targetId, { mint, onSuccess }) {
+export async function mountBuy(targetId, { mint, onSuccess, amount }) {
   const c = await config();
   if (!c.plugin) throw new Error('on-site buying is turned off');
   await loadScript(c.script || 'https://plugin.jup.ag/plugin-v1.js');
   if (!document.getElementById(targetId)) return;
   const formProps = { initialInputMint: SOL, initialOutputMint: mint };
+  if (amount && +amount > 0) formProps.initialAmount = String(amount); // quick-buy preset, SOL (UI units)
   if (c.referralAccount) { formProps.referralAccount = c.referralAccount; formProps.referralFee = c.feeBps; }
   window.Jupiter.init({
     displayMode: 'integrated', integratedTargetId: targetId,
