@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { trustRank, activity, scoreOf, boostMinScore } = require('../lib/trust');
+const { trustRank, activity, scoreOf, boostMinScore, flagsOf } = require('../lib/trust');
 
 const row = (mint, o = {}) => ({ mint, liquidity: 50000, txns: { h1: { buys: 60, sells: 40 }, h24: { buys: 900, sells: 700 } }, volume: { h1: 20000, h24: 300000 }, ...o });
 test('activity rewards organic flow and damps thin / wash-like pools', () => {
@@ -41,4 +41,16 @@ test('BOOST_MIN_SCORE parsing', () => {
   assert.equal(boostMinScore({ BOOST_MIN_SCORE: '0' }), 0);
   assert.equal(boostMinScore({ BOOST_MIN_SCORE: 'abc' }), 50);
   assert.equal(boostMinScore({ BOOST_MIN_SCORE: '500' }), 100);
+});
+test('clean-trending flags: bundles, snipers/RIGGED and copycats are flagged, demoted and never pinned', () => {
+  assert.deepEqual(flagsOf(row('ok', { score: { t: 80 } })), []);
+  assert.deepEqual(flagsOf(row('b', { safety: { bundled: true } })), ['bundle']);
+  assert.deepEqual(flagsOf(row('s', { score: { t: 60, cl: 'RIGGED' } })), ['sniper']);
+  assert.deepEqual(flagsOf(row('s2', { score: { t: 60, sn: 20 } })), ['sniper']);
+  assert.deepEqual(flagsOf(row('v', { og: { status: 'vamp' } })), ['copycat']);
+  assert.deepEqual(flagsOf(row('vv', { og: { status: 'vamp', vv: true } })), []);
+  const r = trustRank([row('clean', { score: { t: 70 } }), row('copy', { score: { t: 70 }, og: { status: 'vamp' }, promo: 50 })], { minScore: 50, promoSlots: 3 });
+  assert.equal(r[0].mint, 'clean');
+  assert.equal(r[1].pinned, false);
+  assert.deepEqual(r[1].flags, ['copycat']);
 });

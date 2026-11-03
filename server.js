@@ -366,6 +366,12 @@ async function pricesFor(mints) {
 }
 const alerts = createAlerts({ dataDir: path.join(__dirname, 'data'), getPrices: pricesFor, ogPeek: m => og.peek(m), ogResults: () => og.db.results, tracker, baseUrl: publicBase });
 alerts.start(); tracker.start();
+// ---------- public Scope Score track record (lib/trackrecord.js) ----------
+const TRACK = require('./lib/trackrecord').createTrackRecord({
+  file: process.env.TRACK_FILE || path.join(__dirname, 'data', 'track-record.json'),
+  fetchPrices: async mints => { const ds = await dexTokens(mints); const out = new Map(); for (const [m, p] of ds) { const r = fromDex(p); out.set(m, { price: r.priceUsd, liq: r.liquidity }); } return out; },
+});
+setInterval(() => TRACK.check().catch(() => {}), 10 * 60e3).unref();
 // ---------- smart money: curated public KOL wallets (data/smart-wallets.js) + each visitor's own tracked wallets ----------
 const SMART = process.env.SMART_MONEY === '0' ? [] : require('./lib/smart-wallets');
 const SMART_BY = new Map(SMART.map(w => [w.addr, w]));
@@ -390,7 +396,7 @@ function smartFor(mint, mine = new Set()) {
 const CALLER_STATS = (() => { try { return require('./lib/caller-stats.json'); } catch { return { wallets: {} }; } })();
 const walletsParam = q => new Set(String(q || '').split(',').filter(isMint).slice(0, 20));
 
-const chip = s => s && { t: s.total, c: s.coin?.score ?? null, cl: s.coin?.label || null, n: s.narrative.score, nl: s.narrative.label, g: s.grade, r: s.reason };
+const chip = s => s && { t: s.total, c: s.coin?.score ?? null, cl: s.coin?.label || null, n: s.narrative.score, nl: s.narrative.label, g: s.grade, r: s.reason, sn: s.coin?.early?.sniperHoldPct ?? null };
 function peekScore(chain, addr) { return chip(store.get(scoreKey(chain, addr))?.value); }
 // background: score list tokens once their safety scan is cached (quick mode = no launch scan)
 const scoreQ = []; const scoreQueued = new Set(); let scoreBusy = 0;
@@ -556,11 +562,13 @@ app.get('/api/list/:kind', async (req, res) => {
       if (live.length) rows = [...live, ...rows].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }
     for (const r of rows) og.sample(r.mint, r.mcap ?? r.fdv);
+    for (const r of rows) { const sc = r.score || peekScore('solana', r.mint); if (sc && sc.t != null) TRACK.record({ mint: r.mint, t: sc.t, price: r.priceUsd, liq: r.liquidity }); }
     enqueue(rows.slice(0, 120).map(r => r.mint)); enqueueOG(rows.slice(0, 120)); enqueueScore(rows.slice(0, 120).map(r => r.mint));
     res.set('Cache-Control', 'no-cache');
     res.json({ updatedAt: store.get('list:' + req.params.kind)?.at || Date.now(), ...(req.params.kind === 'trending' ? { rank: ranked ? 'trust' : 'raw', boostMinScore: BOOST_MIN_SCORE } : {}), rows: ranked || rows.map(r => withIntel(r, boosts, scoped)) });
   } catch (e) { fail(res, e); }
 });
+app.get('/api/track-record', (req, res) => ok(res, TRACK.stats(), 300));
 app.get('/api/safety', (req, res) => {
   const mints = String(req.query.mints || '').split(',').filter(isMint).slice(0, 200);
   enqueue(mints);
@@ -856,7 +864,7 @@ app.get('/api/config', (req, res) => ok(res, { jup: JUP, exits: EXITS.public }, 
 const has = k => !!(process.env[k] || '').trim();
 const CONFIG_STATUS = () => ({
   PUBLIC_URL: has('PUBLIC_URL'), SOLANA_RPC: has('SOLANA_RPC'), ADMIN_PASSWORD: has('ADMIN_PASSWORD'), PAY_WALLET: has('PAY_WALLET'),
-  JUP_REFERRAL_ACCOUNT: !!JUP.referralAccount, JUP_API_KEY: EXITS.config.enabled, TELEGRAM_ALERTS_BOT_TOKEN: has('TELEGRAM_ALERTS_BOT_TOKEN'),
+  JUP_REFERRAL_ACCOUNT: !!JUP.referralAccount, JUP_API_KEY: EXITS.config.enabled, TELEGRAM_ALERTS_BOT_TOKEN: has('TELEGRAM_ALERTS_BOT_TOKEN') || has('TELEGRAM_BOT_TOKEN'),
   X_API_KEY: has('X_API_KEY'), X_API_SECRET: has('X_API_SECRET'), X_ACCESS_TOKEN: has('X_ACCESS_TOKEN'), X_ACCESS_SECRET: has('X_ACCESS_SECRET'),
   VAPID: alerts.status.vapid, BOOST_MIN_SCORE, TRENDING_AD_SLOTS: AD_SLOTS, EXIT_FEE_BPS: EXITS.config.enabled ? EXITS.config.feeBps : null,
 });
