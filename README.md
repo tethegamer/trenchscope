@@ -25,7 +25,9 @@ DexScreener shows you charts. On the Scope shows you charts **plus a safety scor
 | Pump.fun live coins | ❌ | ✅ |
 | OG vs VAMP tags for reused names | ❌ | ✅ 👑 OG badge, “VAMP” chip + “Vamp of X ↗” link, OG-only filter |
 | Enhanced token info | $299 | **Scoped** $69 |
-| Boosts | ~$99–$899 | $19 / $49 / $129 |
+| Boosts | ~$99–$899, buys rank | $19 / $49 / $129, labelled AD slot, only for Scope Score 50+ |
+| Trending order | paid boosts lift rank | **Trending you can trust**: organic activity + Scope Score |
+| TP / SL / limit orders | ❌ | ✅ Jupiter Trigger, from the token page |
 | Watchlist + price alerts | account needed | ✅ in-browser (localStorage + notifications), no login |
 | One-click buy | ❌ | ✅ Jupiter, plus SafeSign deep scan |
 
@@ -54,7 +56,10 @@ One 0–100 number on every token page (full breakdown) and as a compact chip in
 - Optional env: `SCORE_RPC` (faster Solana RPC for the launch scan; default PublicNode).
 
 ## 🤖 X reply bot (`lib/xbot.js`)
-Tag the bot under a post with a contract address and it replies with the Scope Score + token link. Off until
+Tag the bot under a post with a contract address and it replies with the Scope Score, 👑 OG / 🧛 VAMP copycat status,
+👀 tracked KOL buys (24h), a ✅ Scoped line for paid listings, and the token link (lowest-priority lines are dropped to
+stay within 280). Each newly approved **Scoped** listing also gets one "Newly Scoped" post from the bot (part of the $69
+package; counts toward the hourly cap, recorded on the order so it never posts twice). Off until
 `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` are set. Setup and costs: [docs/x-bot.md](docs/x-bot.md).
 
 ## ⚡ Buy on site (`public/buy.js`, `lib/jupiter.js`)
@@ -62,7 +67,20 @@ Tag the bot under a post with a contract address and it replies with the Scope S
 - Solana token pages have a **⚡ Buy … here** card, which is the official [Jupiter Plugin](https://dev.jup.ag/tool-kits/plugin) in integrated mode, set up for SOL → token. It loads when the user taps **Open swap** or the **⚡ Buy** button (or right away if they used it before). The buyer's wallet signs inside Jupiter; the server never handles keys or funds.
 - `JUP_REFERRAL_ACCOUNT` adds a referral fee of `JUP_REFERRAL_FEE_BPS` (default 50 = 0.5%, allowed 50–255). It stays off until the account is set, and the card shows the fee to buyers. Setup steps are in **[docs/jupiter-referral.md](docs/jupiter-referral.md)**.
 - `JUP_PLUGIN=0` hides the card. The **Buy on Jupiter ↗** link always works as a fallback, and the ⚡ Buy button also falls back to jup.ag if the plugin is off.
-- `GET /api/config` returns `{ jup: { plugin, referralAccount, feeBps } }`.
+- `GET /api/config` returns `{ jup: { plugin, referralAccount, feeBps }, exits: { enabled, feeBps, feeWallet, minUsd } }`.
+
+## 🎯 Exits: TP / SL, trailing stop, limit orders (`lib/exits.js`, `public/exits.js`)
+- Token pages get an **Exits** card: take-profit + stop-loss (OCO), limit sell, stop-loss, trailing stop, and limit buy
+  (SOL → token), through [Jupiter Trigger V2](https://developers.jup.ag/docs/trigger). Any Wallet Standard wallet
+  (Phantom, Solflare, Backpack…) signs in with a message signature and signs the deposit; funds sit in the user's own
+  Jupiter vault until the order fills, expires or is cancelled (cancel = withdrawal back to the wallet). Jupiter's minimum is $10.
+- The server only relays the calls (`/api/exits/*`) so the `JUP_API_KEY` stays secret; it never holds keys or funds.
+  Session tokens stay in browser memory only.
+- **Fee:** Trigger V2 has no integrator-fee field, so the `EXIT_FEE_BPS` (default 50 = 0.5%) fee is a separate SOL
+  transfer to `EXIT_FEE_WALLET` (default `PAY_WALLET`) — a plain wallet, no referral account needed. It's signed in the
+  same wallet prompt as the deposit; the server checks it matches the quote (amount, wallet, signature), simulates it,
+  and only broadcasts it after Jupiter accepted the order. Shown up front; not refunded on cancel.
+- Off until `JUP_API_KEY` is set (free key at portal.jup.ag); the card then just links to jup.ag.
 
 ## 🧠 Smart money tags (`data/smart-wallets.js`)
 
@@ -105,7 +123,7 @@ When a coin pumps, vamps relaunch the same name/ticker. On the Scope finds every
 ## 💸 Monetization (Solana Pay, USDC or SOL)
 | Product | Price | DexScreener |
 |---|---|---|
-| **Scoped** — logo, banner, description, website/X/Telegram + crosshair “Scoped” badge, reviewed before going live | $69 one-time | $299 Enhanced Token Info |
+| **Scoped** — logo, banner, description, website/X/Telegram + crosshair “Scoped” badge, reviewed before going live, plus a "Newly Scoped" post from our X bot and a ✅ Scoped line in its replies | $69 one-time | $299 Enhanced Token Info |
 | ⚡ 10x Boost | $19 / 12h | ~$99 / 12h* |
 | ⚡ 30x Boost | $49 / 24h | ~$249 / 12h* |
 | ⚡ 100x Boost | $129 / 24h | ~$899 / 24h* |
@@ -113,7 +131,8 @@ When a coin pumps, vamps relaunch the same name/ticker. On the Scope finds every
 \*commonly reported prices; DexScreener only shows boost prices in its own dialog.
 - Buyers order on **/advertise** → get Solana Pay QR codes / wallet links (USDC exact amount, or SOL quoted live and valid 1h) → `/order/:id` polls and verifies on-chain.
 - **No private keys.** Each payment option has a unique `reference` pubkey; the server looks up transactions with it via public RPC and checks the owner wallet’s USDC/SOL balance delta (logic adapted from SafeSign). A signature can only pay one order.
-- Boosts activate instantly, pin the token higher in Trending (ordered by active boosts) and are labelled **⚡ Promoted / AD**. DexScreener’s own boosts are shown separately as **DS⚡**. Boosts are refused for tokens our scanner rates high-risk.
+- **Trending you can trust** (`lib/trust.js`): 🔥 Trending is ranked by organic activity (1h/24h trades and volume, damped for thin pools, wash-like turnover, a few huge trades or one-sided flow) blended with the Scope Score; danger-rated tokens sink. Paid boosts do **not** change that order: up to `TRENDING_AD_SLOTS` (default 3) boosted tokens get a pinned, labelled **⚡ AD** slot on top, only while their Scope Score is ≥ `BOOST_MIN_SCORE` (default 50). Tokens only listed because they paid DexScreener (**DS⚡**) get no lift and must earn their place on activity. `?rank=raw` gives the old order.
+- Boosts activate instantly and are labelled **⚡ Promoted / AD**. They're only sold to tokens with a Scope Score ≥ `BOOST_MIN_SCORE` that our scanner doesn't rate high-risk (`GET /api/boost-check?mint=` tells the advertise form up front).
 - Scoped orders go to **review**; the owner approves/rejects at **/admin** (`ADMIN_PASSWORD` env, timing-safe compare, lockout after 10 failures). Only approved info is shown.
 - Orders persist in `data/orders.json` (`ORDERS_FILE` to change).
 

@@ -72,7 +72,7 @@ no contract address cost only $0.001 (plus $0.005 for the parent post).
    | `X_POLL_SECONDS` | optional, default `90` (minimum 30) |
    | `X_MAX_REPLIES_PER_HOUR` | optional, default `30` |
 
-7. **Save → Manual Deploy → Deploy latest commit.** Render does not auto-deploy this service.
+7. **Save.** Render restarts the service with the new variables (pushes to `master` also auto-deploy).
 8. Check it’s running: open `https://<your site>/api/health`. It should show `"xbot": {"enabled": true, ...}`
    with a recent `lastPoll` and `lastError: null`. Render’s *Logs* tab shows `[xbot] watching @OnTheScope mentions`.
 9. Test: from another account, post `@OnTheScope <a contract address>`. The reply arrives within ~1.5 minutes.

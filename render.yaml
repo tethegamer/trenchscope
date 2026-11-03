@@ -47,3 +47,9 @@ services:
         sync: false
       - key: JUP_REFERRAL_FEE_BPS
         value: "50"
+      # Exits (TP/SL, trailing stop, limit orders via Jupiter Trigger V2) - free key from https://portal.jup.ag.
+      # Off until set. 0.5% fee (EXIT_FEE_BPS, default 50) is paid in SOL to EXIT_FEE_WALLET (default: PAY_WALLET).
+      - key: JUP_API_KEY
+        sync: false
+      # Optional tuning (defaults in code): BOOST_MIN_SCORE=50 (boosts only sold at Scope Score >= this),
+      # TRENDING_AD_SLOTS=3 (labelled AD rows pinned on top of Trending), EXIT_FEE_BPS=50, EXIT_FEE_WALLET.
