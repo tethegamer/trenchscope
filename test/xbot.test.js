@@ -55,7 +55,7 @@ test('polls mentions, skips backlog, replies once with link', async () => {
 
 const { announceText, handleFromUrl } = require('../lib/xbot');
 const len = t => t.replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length;
-const intel = { og: { status: 'vamp', og: { symbol: 'BONK' }, vv: true, ratio: 1.6 }, kols: { buyers: ['Ansem', 'Cented', 'Orangie', 'Gake'], tracked: true }, scoped: { handle: '@bonk_inu' } };
+const intel = { og: { status: 'vamp', og: { symbol: 'BONK' }, vv: false, ratio: 1.6 }, kols: { buyers: ['Ansem', 'Cented', 'Orangie', 'Gake'], tracked: true }, scoped: { handle: '@bonk_inu' } };
 test('reply adds OG/VAMP, KOL buys and Scoped lines, still <= 280', () => {
   const t = replyText(sample, 'https://onthescope.fun/token/' + BONK, intel);
   assert.match(t, /🧛 VAMP: copycat of \$BONK/);
@@ -98,4 +98,12 @@ test('announces each new Scoped listing once (counts toward the cap)', async () 
   assert.equal(await mk().announceNext(), 'none'); // persisted across restarts
   assert.equal(b.status.announced, 1);
   assert.ok(announceText({ ...sample, symbol: 'Z' }, 'https://a.b/t', {}).includes('$Z'));
+});
+
+test('a Valid Vamp is never labelled VAMP / copycat (reply, trust flags)', () => {
+  const t = replyText(sample, 'https://a.b/t', { og: { status: 'vamp', og: { symbol: 'BONK' }, vv: true, ratio: 3.4 } });
+  assert.doesNotMatch(t, /VAMP|copycat/); assert.match(t, /Valid Vamp: flipped \$BONK 3\.4x/);
+  const { flagsOf } = require('../lib/trust');
+  assert.deepEqual(flagsOf({ og: { status: 'vamp', vv: true } }), []);
+  assert.deepEqual(flagsOf({ og: { status: 'vamp', vv: false } }), ['copycat']);
 });
