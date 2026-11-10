@@ -152,7 +152,16 @@ npm install
 npm start          # http://localhost:3000  (PORT env to change)
 npm test           # payment verification (real historical txs) + OG tests + live API smoke test
 ```
-Env: `SOLANA_RPC` (default public mainnet RPC), `ADMIN_PASSWORD` (enables /admin), `PAY_WALLET` (owner wallet, default `EL63Jz5kAamGAFtwiunvCJsFcAZWGUmagPTHZTrcPVv6`), `ORDERS_FILE`, `OG_CACHE_FILE`.
+Env: `SOLANA_RPC` (default public mainnet RPC), `ADMIN_PASSWORD` (enables /admin), `PAY_WALLET` (owner wallet, default `EL63Jz5kAamGAFtwiunvCJsFcAZWGUmagPTHZTrcPVv6`), `ORDERS_FILE`, `OG_CACHE_FILE`, `SITE_CA` (official token mint; see below).
+
+## Official token CA
+
+The top bar stays **CA: soon 🔭** until you set `SITE_CA` to the Solana mint (32–44 character base58). Then restart the Render service — no code change, one env var. Invalid values are ignored and the placeholder stays up.
+
+1. In the Render dashboard for `trenchscope`, add `SITE_CA` = the mint (or set it in `render.yaml`'s `SITE_CA` slot).
+2. Restart the service. The bar shows the full CA (shortened on mobile) with a copy button, plus a link to [@OnTheScopeFun](https://x.com/OnTheScopeFun).
+
+To test locally: `SITE_CA=YourMint111... npm start`.
 
 ## Deploy (Render free)
 Push the repo, then **New → Blueprint** in Render and select it — `render.yaml` sets up a free Node web service with a `/api/health` check.

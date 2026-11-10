@@ -11,6 +11,9 @@ services:
         value: "20"
       - key: PUBLIC_URL
         value: https://onthescope.fun
+      # Official token mint. Leave unset until launch; the top bar stays "CA: soon" until this is set, then restart.
+      - key: SITE_CA
+        sync: false
       # Optional: a private RPC (Helius/Triton/etc.) for dev-wallet SOL balances
       - key: SOLANA_RPC
         sync: false

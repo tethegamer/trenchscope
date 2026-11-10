@@ -10,6 +10,16 @@ const api = async p => { const r = await fetch(p); const j = await r.json().catc
 const LS = { get: (k, d) => { try { return JSON.parse(localStorage.getItem('ts:' + k)) ?? d; } catch { return d; } }, set: (k, v) => { localStorage.setItem('ts:' + k, JSON.stringify(v)); if (SYNC_KEYS.has(k)) AL.scheduleSync(); } };
 const SYNC_KEYS = new Set(['watch', 'wallets', 'alerts']);
 
+$('#ca-bar')?.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-ca]');
+  if (!b) return;
+  navigator.clipboard?.writeText(b.dataset.ca);
+  const ico = b.querySelector('[aria-hidden]');
+  if (!ico) return;
+  ico.textContent = '✓';
+  setTimeout(() => { ico.textContent = '📋'; }, 1400);
+});
+
 // ---------- formatting ----------
 function usd(n, d) {
   if (n == null || isNaN(n)) return '—';

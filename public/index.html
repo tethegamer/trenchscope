@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#07090d">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="On the Scope">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -15,13 +16,24 @@
 <link rel="canonical" href="https://onthescope.fun/">
 <meta property="og:type" content="website"><meta property="og:site_name" content="On the Scope"><meta property="og:url" content="https://onthescope.fun/"><meta property="og:title" content="On the Scope — Multi-chain token screener with safety on every row">
 <meta property="og:description" content="Live pairs across 30+ chains with Scope Score, rug &amp; bundle checks, OG vs VAMP tags, Top Callers, watchlist, alerts and Wallet PnL.">
-<meta property="og:image" content="/og-image.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="/og-image.png">
+<meta property="og:image" content="https://onthescope.fun/og-image.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="On the Scope — the multi-chain screener with a safety score on every row">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@OnTheScopeFun">
+<meta name="twitter:title" content="On the Scope — Multi-chain token screener with safety on every row">
+<meta name="twitter:description" content="Live pairs across 30+ chains with Scope Score, rug &amp; bundle checks, OG vs VAMP tags, Top Callers, watchlist, alerts and Wallet PnL.">
+<meta name="twitter:image" content="https://onthescope.fun/og-image.png">
+<meta name="twitter:image:alt" content="On the Scope — the multi-chain screener with a safety score on every row">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<div id="ca-bar" style="background:linear-gradient(90deg,#84e639,#14f195,#22d3ee);color:#05090f;text-align:center;font:800 14px/1 Inter,system-ui,sans-serif;padding:9px 12px;letter-spacing:.3px">CA: soon 🔭 · The official On the Scope token is coming. Follow <a href="https://x.com/OnTheScopeFun" target="_blank" rel="noopener" style="color:#05090f;text-decoration:underline">@OnTheScopeFun</a></div>
+<div class="chrome">
+<div id="ca-bar" class="ca-bar">CA: soon 🔭 · The official On the Scope token is coming. Follow <a href="https://x.com/OnTheScopeFun" target="_blank" rel="noopener">@OnTheScopeFun</a></div>
 <header class="top">
   <a class="brand" href="/" data-link><img src="/logo.svg" alt="On the Scope logo" width="30" height="30"><span>On the <b>Scope</b></span></a>
   <button class="chainbtn" id="chainBtn" title="Select chain" aria-label="Select chain"></button>
@@ -33,16 +45,18 @@
   </form>
   <div class="online-pill" id="onlinePill" role="status" aria-live="polite" title="1 trader live on On the Scope right now"><i class="live"></i><b id="onlineCount">1</b><span class="online-lbl">online</span></div>
   <a class="navlink" href="/advertise" data-link>Advertise</a>
+  <a class="iconbtn xlink" href="https://x.com/OnTheScopeFun" target="_blank" rel="noopener" title="On the Scope on X" aria-label="On the Scope on X"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.727-8.835L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
   <button class="iconbtn" id="installBtn" title="Install the app" aria-label="Install the app" hidden><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M11 3h2v9.17l3.59-3.58L18 10l-6 6-6-6 1.41-1.41L11 12.17V3ZM5 18h14v2H5v-2Z"/></svg></button>
   <button class="iconbtn" id="alertsBtn" title="Price alerts"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3a1.5 1.5 0 0 0-3 0v1.16A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg><i id="alertCount" hidden></i></button>
   <a class="iconbtn" id="profileBtn" href="/profile" data-link title="Profile: watchlist, wallets &amp; PnL" aria-label="Profile"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.4 0-8 2.24-8 5v2h16v-2c0-2.76-3.6-5-8-5Z"/></svg></a>
 </header>
+</div>
 <main id="app"></main>
 <div class="drawer" id="drawer" hidden></div>
 <div id="toasts"></div>
 <footer class="foot">
-  <span><b>On the Scope</b> · Data: DexScreener · GeckoTerminal · pump.fun · RugCheck · GoPlus · Solana RPC. Safety scores are heuristics, not financial advice.</span>
-  <a href="https://safesign-pg8h.onrender.com" target="_blank" rel="noopener">Check any token with SafeSign ↗</a>
+  <span><b>On the Scope</b> · Data: DexScreener · GeckoTerminal · pump.fun · RugCheck · GoPlus · Solana RPC. Scope Score and safety flags are heuristics, not financial advice. DYOR.</span>
+  <span class="foot-links"><a href="https://x.com/OnTheScopeFun" target="_blank" rel="noopener">@OnTheScopeFun</a><a href="https://safesign-pg8h.onrender.com" target="_blank" rel="noopener">Check any token with SafeSign ↗</a></span>
 </footer>
 <script src="/vendor/lightweight-charts.js"></script>
 <script src="/app.js" type="module"></script>

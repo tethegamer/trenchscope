@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "TELEGRAM_BOT_TOKEN= TELEGRAM_ALERTS_BOT_TOKEN= node --test test/payments.test.js test/pnl.test.js test/score.test.js test/xbot.test.js test/alerts.test.js test/smart.test.js test/jupiter.test.js test/pwa.test.js test/live.test.js test/presence.test.js test/trust.test.js test/exits.test.js test/trackrecord.test.js && node test/og.js && TELEGRAM_BOT_TOKEN= TELEGRAM_ALERTS_BOT_TOKEN= node test/smoke.js"
+    "test": "TELEGRAM_BOT_TOKEN= TELEGRAM_ALERTS_BOT_TOKEN= node --test test/payments.test.js test/pnl.test.js test/score.test.js test/xbot.test.js test/alerts.test.js test/smart.test.js test/jupiter.test.js test/pwa.test.js test/live.test.js test/presence.test.js test/trust.test.js test/exits.test.js test/trackrecord.test.js test/site.test.js && node test/og.js && TELEGRAM_BOT_TOKEN= TELEGRAM_ALERTS_BOT_TOKEN= node test/smoke.js"
   },
   "engines": {
     "node": ">=18"

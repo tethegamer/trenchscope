@@ -15,6 +15,8 @@ const scoreLib = require('./lib/score');
 const { safeFetch } = require('./lib/safefetch');
 const { createPresence, normalizeToken } = require('./lib/presence');
 const presence = createPresence();
+const fs = require('fs');
+const site = require('./lib/site');
 
 const PORT = process.env.PORT || 3000;
 const RPC = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
@@ -863,7 +865,7 @@ app.get('/api/config', (req, res) => ok(res, { jup: JUP, exits: EXITS.public }, 
 // which optional settings are present (booleans only — never values)
 const has = k => !!(process.env[k] || '').trim();
 const CONFIG_STATUS = () => ({
-  PUBLIC_URL: has('PUBLIC_URL'), SOLANA_RPC: has('SOLANA_RPC'), ADMIN_PASSWORD: has('ADMIN_PASSWORD'), PAY_WALLET: has('PAY_WALLET'),
+  PUBLIC_URL: has('PUBLIC_URL'), SOLANA_RPC: has('SOLANA_RPC'), ADMIN_PASSWORD: has('ADMIN_PASSWORD'), PAY_WALLET: has('PAY_WALLET'), SITE_CA: !!site.siteCa(),
   JUP_REFERRAL_ACCOUNT: !!JUP.referralAccount, JUP_API_KEY: EXITS.config.enabled, TELEGRAM_ALERTS_BOT_TOKEN: has('TELEGRAM_ALERTS_BOT_TOKEN') || has('TELEGRAM_BOT_TOKEN'),
   X_API_KEY: has('X_API_KEY'), X_API_SECRET: has('X_API_SECRET'), X_ACCESS_TOKEN: has('X_ACCESS_TOKEN'), X_ACCESS_SECRET: has('X_ACCESS_SECRET'),
   VAPID: alerts.status.vapid, BOOST_MIN_SCORE, TRENDING_AD_SLOTS: AD_SLOTS, EXIT_FEE_BPS: EXITS.config.enabled ? EXITS.config.feeBps : null,
@@ -872,9 +874,18 @@ app.get('/api/health', (req, res) => res.json({ ok: true, config: CONFIG_STATUS(
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/javascript').sendFile(path.join(__dirname, 'public', 'sw.js')); });
+const INDEX_PATH = path.join(__dirname, 'public', 'index.html');
+function sendIndex(req, res) {
+  const html = site.injectIndex(fs.readFileSync(INDEX_PATH, 'utf8'), site.siteCa());
+  res.set('Cache-Control', 'public, max-age=60');
+  res.type('html').send(html);
+}
+app.get('/robots.txt', (req, res) => { res.set('Cache-Control', 'public, max-age=3600'); res.type('text/plain').send(site.robotsTxt(site.publicBase())); });
+app.get('/sitemap.xml', (req, res) => { res.set('Cache-Control', 'public, max-age=3600'); res.type('application/xml').send(site.sitemapXml(site.publicBase())); });
+app.get(['/', '/index.html'], sendIndex);
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
-app.get(/^\/(token\/.*|advertise|profile|callers|order\/.*|c\/.*)?$/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get(/^\/(token\/.*|advertise|profile|callers|order\/.*|c\/.*)?$/, sendIndex);
 
 if (require.main === module) {
   app.listen(PORT, () => console.log(`On the Scope on http://localhost:${PORT}`));
