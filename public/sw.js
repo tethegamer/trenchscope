@@ -6,7 +6,7 @@
 //    and the app says so; we never show an old price as if it were current.
 //  * Pages and our own JS/CSS: network first, using the cached copy only when offline.
 //  * Icons/images/fonts: cache first (they never carry prices).
-const VERSION = 'ots-v6';
+const VERSION = 'ots-v7';
 const SHELL = ['/', '/app.css', '/app.js', '/profile.js', '/alerts-client.js', '/buy.js', '/pwa.js', '/pnl-core.js', '/logo.svg', '/icon-192.png', '/manifest.webmanifest'];
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -17,23 +17,28 @@ self.addEventListener('activate', e => e.waitUntil((async () => {
   await self.clients.claim();
 })()));
 const OFFLINE = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline · On the Scope</title><body style="margin:0;background:#07090d;color:#e8ecf3;font:15px system-ui;display:grid;place-items:center;min-height:100vh;text-align:center"><div><img src="/icon-192.png" width="72" height="72" alt=""><h2>You're offline</h2><p style="color:#8590a6">Live prices need a connection. We never show stale prices.</p><button onclick="location.reload()" style="background:#14f195;border:0;border-radius:10px;padding:10px 18px;font-weight:700">Retry</button></div>`;
-const isStatic = p => /\.(png|svg|ico|webp|jpg|woff2?)$/.test(p);
+const isStatic = (p, q) => /\.(png|svg|ico|webp|jpg|woff2?)$/.test(p) || p.startsWith('/vendor/') || /(^|&)v=/.test(q); // icons, chart lib, content-hashed app.js/css
+// network first, but never make the user stare at a blank screen on a slow connection: after `ms` serve the cached copy
+const netFirst = (req, ms, key) => new Promise(resolve => {
+  let done = false; const fin = r => { if (!done && r) { done = true; resolve(r); } };
+  const t = setTimeout(() => caches.match(key || req).then(fin), ms);
+  fetch(req).then(r => { clearTimeout(t); if (r.ok) { const c = r.clone(); caches.open(VERSION).then(x => x.put(key || req, c)); } fin(r); })
+    .catch(async () => { clearTimeout(t); fin((await caches.match(key || req)) || (req.mode === 'navigate' ? new Response(OFFLINE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }) : Response.error())); });
+});
 self.addEventListener('fetch', e => {
   const req = e.request; const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return; // network only
   if (url.pathname.startsWith('/api/') || url.pathname === '/sw.js') return; // live data: network only, never cached
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).then(r => { if (r.ok) { const c = r.clone(); caches.open(VERSION).then(x => x.put('/', c)); } return r; })
-      .catch(async () => (await caches.match('/')) || new Response(OFFLINE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
+    e.respondWith(netFirst(req, 3000, '/'));
     return;
   }
-  if (isStatic(url.pathname)) {
+  if (isStatic(url.pathname, url.search.slice(1))) {
     e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(r => { if (r.ok) { const c = r.clone(); caches.open(VERSION).then(x => x.put(req, c)); } return r; })));
     return;
   }
   // our JS/CSS etc: network first so a new deploy shows up immediately; cache only as an offline fallback
-  e.respondWith(fetch(req).then(r => { if (r.ok) { const c = r.clone(); caches.open(VERSION).then(x => x.put(req, c)); } return r; })
-    .catch(() => caches.match(req).then(hit => hit || Response.error())));
+  e.respondWith(netFirst(req, 2500));
 });
 self.addEventListener('push', e => {
   let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = { title: 'On the Scope', body: e.data && e.data.text() }; }

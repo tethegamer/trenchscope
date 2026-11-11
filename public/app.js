@@ -37,6 +37,7 @@ function price(n) {
   return `$0.0<sub>${zeros}</sub>${m.replace('.', '').slice(0, 4)}`;
 }
 const pct = n => n == null || isNaN(n) ? '<span class="dim">—</span>' : `<span class="${n >= 0 ? 'up' : 'dn'}">${n >= 0 ? '+' : ''}${Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'K' : n.toFixed(Math.abs(n) >= 100 ? 0 : 1)}%</span>`;
+const pctA = n => n == null || isNaN(n) ? '<span class="chg dim">—</span>' : `<span class="chg ${n >= 0 ? 'up' : 'dn'}">${n >= 0 ? '▲' : '▼'} ${Math.abs(n) >= 1000 ? (Math.abs(n) / 1000).toFixed(1) + 'K' : Math.abs(n).toFixed(Math.abs(n) >= 100 ? 0 : 2)}%</span>`;
 function age(ts) {
   if (!ts) return '—';
   const s = (Date.now() - ts) / 1000;
@@ -321,6 +322,58 @@ window.addEventListener('pagehide', () => {
   try { navigator.sendBeacon?.('/api/presence', JSON.stringify({ sid: PRES.sid, leave: true })); } catch {}
 });
 
+// ---------- live quotes (SSE /api/live/quotes): one shared server poll, only changed tokens are pushed ----------
+let QUOTE_CB = null; const QS = { es: null, key: null, extra: [] };
+function applyQuote(x, a) {
+  const [p, m5, h1, h6, h24, liq, mc, v24, bu, se] = a;
+  if (p != null) x.priceUsd = p;
+  x.change = { ...(x.change || {}), m5, h1, h6, h24 };
+  if (liq != null) x.liquidity = liq; if (mc != null) x.mcap = mc;
+  x.volume = { ...(x.volume || {}), h24: v24 };
+  if (bu != null) x.txns = { ...(x.txns || {}), h24: { buys: bu, sells: se } };
+}
+function quotesSync(extra = []) {
+  if (!('EventSource' in window)) return;
+  QS.extra = extra; const key = extra.join(',');
+  if (document.hidden) return;
+  if (QS.es && QS.key === key) return;
+  QS.es?.close(); QS.key = key;
+  const es = QS.es = new EventSource('/api/live/quotes' + (key ? '?mints=' + key : ''));
+  const on = e => { let d; try { d = JSON.parse(e.data); } catch { return; } if (d.q && Object.keys(d.q).length) QUOTE_CB?.(d.q); };
+  es.addEventListener('hello', on); es.addEventListener('q', on);
+}
+function quotesStop() { QS.es?.close(); QS.es = null; QS.key = null; }
+document.addEventListener('visibilitychange', () => { if (document.hidden) quotesStop(); else if (QUOTE_CB) quotesSync(QS.extra); });
+// redraw at most ~3x/s, and never while a finger is on the list (so a tap never lands on a row that just moved)
+let POINTER = false, SD = 0;
+addEventListener('pointerdown', () => { POINTER = true; }, { passive: true });
+addEventListener('pointerup', () => { setTimeout(() => { POINTER = false; }, 250); }, { passive: true });
+addEventListener('pointercancel', () => { POINTER = false; }, { passive: true });
+function softDraw() { if (SD) return; SD = setTimeout(function run() { if (POINTER) { SD = setTimeout(run, 300); return; } SD = 0; draw(); }, 300); }
+// ---------- instant token pages: prefetch on touch/hover, reuse for 20s ----------
+const TOKC = new Map();
+const tokenApi = href => { const m = href.match(/^\/token\/([a-z0-9-]+)\/([^/?#]+)$/) ; if (m) return `/api/token/${m[2]}?chain=${m[1]}`; const s1 = href.match(/^\/token\/([^/?#]+)/); return s1 ? '/api/token/' + s1[1] : null; };
+function tokenData(url) { const h = TOKC.get(url); if (h && Date.now() - h.at < 20e3) return h.p; const p = api(url); TOKC.set(url, { at: Date.now(), p }); p.catch(() => TOKC.delete(url)); return p; }
+function prefetchToken(href) { const u = href && tokenApi(href); if (u) tokenData(u).catch(() => {}); loadLW().catch(() => {}); }
+let LWp = null;
+function loadLW() {
+  if (window.LightweightCharts) return Promise.resolve();
+  return LWp || (LWp = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = '/vendor/lightweight-charts.js'; sc.async = true; sc.onload = res; sc.onerror = () => { LWp = null; sc.remove(); rej(new Error('chart library failed to load')); }; document.head.appendChild(sc); }));
+}
+// ---------- bottom tab bar (phones) ----------
+function syncNav() {
+  const p = location.pathname; const cur = p === '/profile' ? 'profile' : p === '/' ? (st.tab === 'watch' ? 'watch' : st.tab === 'new' ? 'new' : 'trending') : p === '/callers' ? 'trending' : '';
+  document.querySelectorAll('#bnav [data-nav]').forEach(b => { b.classList.toggle('on', b.dataset.nav === cur); b.setAttribute('aria-current', b.dataset.nav === cur ? 'page' : 'false'); });
+}
+$('#bnav')?.addEventListener('click', e => {
+  const b = e.target.closest('[data-nav]'); if (!b) return; const t = b.dataset.nav;
+  if (navigator.vibrate) try { navigator.vibrate(8); } catch {}
+  if (t === 'search') { if (location.pathname.startsWith('/token/')) go('/'); scrollTo({ top: 0 }); const q = $('#q'); q.focus(); q.select?.(); return; }
+  if (t === 'profile') return location.pathname === '/profile' ? scrollTo({ top: 0, behavior: 'smooth' }) : go('/profile');
+  if (location.pathname === '/' && st.tab === t) return scrollTo({ top: 0, behavior: 'smooth' }); // tap the active tab = back to top
+  st.tab = t; st.sort = null; saveSt(); if (location.pathname !== '/') go('/'); else { listPage(); scrollTo({ top: 0 }); }
+});
+
 // ---------- router ----------
 let cleanup = [];
 function go(path) { history.pushState(null, '', path); route(); }
@@ -338,6 +391,8 @@ function route() {
   window.scrollTo(0, 0);
   const o = location.pathname.match(/^\/order\/([a-f0-9]{20})$/);
   $('#profileBtn')?.classList.toggle('on', location.pathname === '/profile');
+  document.body.classList.toggle('on-token', !!(mc || m)); syncNav();
+  if (!mc && !m && location.pathname !== '/') quotesStop();
   if (mc) { const ch = mc[1], addr = decodeURIComponent(mc[2]); setWatching(tokKey(ch, addr)); tokenPage(addr, ch); } else if (m) { const ch = qChain || 'solana', addr = decodeURIComponent(m[1]); setWatching(tokKey(ch, addr)); tokenPage(addr, ch); } else { setWatching(null); if (o) orderPage(o[1]); else if (location.pathname === '/advertise') advertisePage(); else if (location.pathname === '/callers') callersPage(); else if (location.pathname === '/profile') openProfile(); else listPage(); }
 }
 
@@ -357,7 +412,7 @@ const TABS = [
   { id: 'new', label: '<span class="dot"></span> ✨ New pairs', desc: 'Every new coin the moment it launches: pump.fun &amp; LetsBonk launches stream in live, plus fresh DEX pools, newest first.' },
   { id: 'gainers', label: '🚀 Gainers', desc: 'Biggest 24h movers with at least $5K liquidity across tracked pairs.' },
   { id: 'callers', label: '📣 Top Callers', desc: '' },
-  { id: 'pumpfun', label: '<span class="dot"></span> Pump.fun live', desc: 'Coins currently live-streaming on pump.fun (bonding curve & migrated).' },
+  { id: 'pumpfun', label: '<span class="dot"></span> Pump.fun hot', desc: 'The most active pump.fun coins right now (bonding curve &amp; PumpSwap), plus brand-new launches as they stream in.' },
   { id: 'watch', label: '★ Watchlist', desc: 'Your starred tokens — saved locally in this browser.' },
 ];
 const DEF = { chain: 'solana', tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcapMax: 0, age: 0, safeOnly: false, noBundle: false, ogOnly: false, vvOnly: false, smartOnly: false, clean: true, sort: null, dir: -1 };
@@ -365,6 +420,7 @@ const DEF = { chain: 'solana', tab: 'trending', liq: 0, vol: 0, mcapMin: 0, mcap
 const cleanFlags = x => { const f = []; if (x.safety && !x.safety.unavailable && x.safety.bundled) f.push('bundle'); if (x.score && (x.score.sn >= 15 || x.score.cl === 'RIGGED')) f.push('sniper'); if (x.og && x.og.status === 'vamp' && !x.og.vv) f.push('copycat'); return f; };
 let CLEANED = null;
 let st = { ...DEF, ...LS.get('filters', {}) };
+{ const qt = location.pathname === '/' && new URLSearchParams(location.search).get('tab'); if (qt && TABS.some(t => t.id === qt && t.id !== 'callers')) st.tab = qt; }
 const saveSt = () => LS.set('filters', st);
 let rows = [], safetyMap = {}, ogMap = {}, scoreMap = {}, smMap = {}, lastUpdated = 0;
 // ---------- smart money ----------
@@ -461,7 +517,10 @@ function listPage() {
   </div><div class="upd" id="upd"></div></div>
   ${st.chain === 'solana' && st.tab === 'trending' ? '<div class="trackline dim" id="trackLine"></div>' : ''}
   <div class="tablewrap desk"><div class="scroll"><table><thead><tr>${head()}</tr></thead><tbody id="tb">${skeleton()}</tbody></table></div></div>
-  <div class="cards" id="cards">${'<div class="c"><div class="skel" style="grid-column:1/-1;height:40px"></div></div>'.repeat(6)}</div>`;
+  <div class="cards" id="cards">${'<div class="c sk"><span class="rk"></span><div class="av skel"></div><div class="mid"><div class="skel" style="width:46%;height:13px"></div><div class="skel" style="width:70%;height:10px;margin-top:6px"></div><div class="skel" style="width:38%;height:10px;margin-top:6px"></div></div><div class="rt"><div class="skel" style="width:64px;height:13px"></div><div class="skel" style="width:44px;height:10px;margin-top:6px"></div></div></div>'.repeat(9)}</div>`;
+  for (const box of [$('#tb'), $('#cards')]) { box.onclick = onRowClick; box.addEventListener('pointerdown', onRowPress, { passive: true }); }
+  $('.tabs .tab.on')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  syncNav();
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { if (b.dataset.tab === 'callers') return go('/callers'); st.tab = b.dataset.tab; st.sort = null; saveSt(); listPage(); });
   app.querySelectorAll('[data-k]').forEach(s => s.onchange = () => { st[s.dataset.k] = +s.value; saveSt(); listPage(); });
   app.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { st[b.dataset.t] = !st[b.dataset.t]; saveSt(); listPage(); });
@@ -475,6 +534,8 @@ function listPage() {
   }).catch(() => {});
   load(true);
   liveSync(); cleanup.push(liveStop);
+  QUOTE_CB = q => { let hit = 0; for (const x of rows) { const a = q[x.mint]; if (a && (!x.chain || x.chain === 'solana')) { applyQuote(x, a); hit++; } } if (hit) softDraw(); };
+  quotesSync(st.tab === 'watch' ? Object.keys(watch).slice(0, 40) : []); cleanup.push(() => { QUOTE_CB = null; });
   const iv = setInterval(() => load(false), 30000); cleanup.push(() => clearInterval(iv));
   const sv = setInterval(pollSafety, 4000); cleanup.push(() => clearInterval(sv));
 }
@@ -568,31 +629,67 @@ function draw() {
     tb.innerHTML = `<tr><td colspan="14" class="empty">${msg}</td></tr>`; $('#cards').innerHTML = `<div class="empty">${msg}</div>`; return;
   }
   const isNew = x => x.createdAt && Date.now() - x.createdAt < 86400e3;
-  tb.innerHTML = r.slice(0, 200).map((x, i) => {
+  const dirs = priceDirs(r.slice(0, 200));
+  patchList(tb, r.slice(0, 200).map((x, i) => {
     const b = x.txns?.h24?.buys, s = x.txns?.h24?.sells, tot = (b || 0) + (s || 0);
     const L = links(x.mint);
-    return `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class="${x.promo ? 'promoted' : ''}${x.pinned ? ' pinned' : ''}${fresh(x) ? ' slide' : ''}">
+    return { k: x.mint, fresh: fresh(x), dir: dirs[x.mint], html: `<tr data-m="${x.mint}" data-h="${esc(tokenHref(x))}" class="${x.promo ? 'promoted' : ''}${x.pinned ? ' pinned' : ''}">
       <td class="l"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}" title="Watchlist">${isWatched(x.mint) ? '★' : '☆'}</button></td>
       <td class="l"><div class="tok">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo, false, x.pinned)}${x.boosts ? `<span class="chip boost" title="Active DexScreener boosts (paid on DexScreener — no ranking lift here)">DS⚡${x.boosts}</span>` : ''}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}${watchSlot(x.chain, x.mint, x.watchers)}</span><span class="sub">${esc(x.name)}${x.dex ? ' · ' + esc(x.dex) : ''} · ${caBtn(x.mint, x.symbol)}</span></div></div></td>
       <td class="l"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span></td>
-      <td class="mono">${price(x.priceUsd)}</td><td class="mut">${age(x.createdAt)}</td>
+      <td class="mono pxc">${price(x.priceUsd)}</td><td class="mut">${age(x.createdAt)}</td>
       <td>${tot ? `<div class="txbar"><span>${tot.toLocaleString()}</span><span class="b"><i style="width:${(b / tot * 100).toFixed(0)}%"></i></span></div>` : '<span class="dim">—</span>'}</td>
       <td>${usd(x.volume?.h24)}</td><td>${pct(x.change?.m5)}</td><td>${pct(x.change?.h1)}</td><td>${pct(x.change?.h6)}</td><td>${pct(x.change?.h24)}</td>
       <td>${usd(x.liquidity)}</td><td>${usd(x.mcap || x.fdv)}</td>
-      <td>${x.chain && x.chain !== 'solana' ? '' : `<a class="buy" href="${L.jup}" target="_blank" rel="noopener" data-stop>Buy</a>`}</td></tr>`;
-  }).join('');
-  $('#cards').innerHTML = r.slice(0, 100).map(x => `<div class="c${fresh(x) ? ' slide' : ''}" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
-      <div class="tok" style="grid-column:1/3">${st.chain === 'all' ? chainDot(x.chain) : ''}${icon(x)}<div class="nm"><span class="sym">${esc(x.symbol)} ${x.scope ? scopeTag() : ''}${ogTag(x.og)}${smChip(smMap[x.mint])}${promoTag(x.promo)}${isNew(x) ? '<span class="chip new">NEW</span>' : ''}${watchSlot(x.chain, x.mint, x.watchers)}</span><span class="sub">${esc(x.name)} · ${age(x.createdAt)} · ${caBtn(x.mint, x.symbol)}</span></div></div>
-      <div class="pr"><b class="mono">${price(x.priceUsd)}</b>${pct(x.change?.h24 ?? x.change?.h1)}</div>
-      <div class="sf"><span class="safe">${badge(x.safety)}${scoreChip(x.score)}${pips(x.safety)}</span><span style="display:flex;gap:6px;align-items:center"><button class="star ${isWatched(x.mint) ? 'on' : ''}" data-w="${x.mint}">${isWatched(x.mint) ? '★' : '☆'}</button>${x.chain && x.chain !== 'solana' ? '' : `<a class="buy" href="${links(x.mint, x.pair).jup}" target="_blank" rel="noopener" data-stop>Buy</a>`}</span></div>
-      <div class="meta"><span>Liq <b>${usd(x.liquidity)}</b></span><span>Vol <b>${usd(x.volume?.h24)}</b></span><span>MCap <b>${usd(x.mcap || x.fdv)}</b></span><span>1h ${pct(x.change?.h1)}</span></div></div>`).join('');
-  app.querySelectorAll('[data-m]').forEach(el => el.onclick = e => {
-    if (e.target.closest('[data-stop]')) return;
-    const w = e.target.closest('[data-w]');
-    if (w) { const row = rows.find(z => z.mint === w.dataset.w); toggleWatch(row); if (st.tab === 'watch') load(); else draw(); return; }
-    go(el.dataset.h || '/token/' + el.dataset.m);
-  });
+      <td>${x.chain && x.chain !== 'solana' ? '' : `<a class="buy" href="${L.jup}" target="_blank" rel="noopener" data-stop>Buy</a>`}</td></tr>` };
+  }));
+  // Mobile: dense one-tap rows (rank · avatar ringed by Scope Score · ticker + trust chips · price), safety on its own line
+  patchList($('#cards'), r.slice(0, 100).map((x, i) => {
+    const sc = x.score, g = sc ? gradeCls(sc.g) : 'n', ch = x.change?.h24 ?? x.change?.h1;
+    return { k: x.mint, fresh: fresh(x), dir: dirs[x.mint], html: `<div class="c${x.pinned ? ' pinned' : ''}" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
+      <span class="rk">${x.pinned ? 'AD' : i + 1}</span>
+      <div class="av s-${g}" style="--v:${sc ? sc.t : 0}" title="${sc ? `Scope Score ${sc.t}/100` : 'Scope Score pending'}">${icon(x)}<b class="avs">${sc ? sc.t : '…'}</b></div>
+      <div class="mid"><div class="l1"><b class="sym">${st.chain === 'all' ? chainDot(x.chain) : ''}${esc(x.symbol)}</b>${ogTag(x.og)}${x.scope ? scopeTag() : ''}${smChip(smMap[x.mint])}${promoTag(x.promo)}${watchSlot(x.chain, x.mint, x.watchers)}</div>
+        <div class="l2"><span>${usd(x.mcap || x.fdv)} <i>MC</i></span>${x.liquidity != null ? `<span>${usd(x.liquidity)} <i>Liq</i></span>` : x.devBuySol ? `<span>${(+x.devBuySol).toFixed(2)} <i>SOL dev buy</i></span>` : ''}<span>${age(x.createdAt)}</span></div>
+        <div class="l3">${badge(x.safety)}${pips(x.safety)}</div></div>
+      <div class="rt"><b class="mono pxc">${price(x.priceUsd)}</b>${pctA(ch)}${x.volume?.h24 != null ? `<span class="vol">${usd(x.volume.h24)} <i>vol</i></span>` : x.live ? '<span class="vol livetag">● live</span>' : ''}</div></div>` };
+  }));
 }
+// ---------- keyed list patching: only rows whose markup changed are touched, so the list never flickers ----------
+const LASTPX = new Map();
+function priceDirs(list) {
+  const d = {};
+  for (const x of list) { const p = x.priceUsd, o = LASTPX.get(x.mint); if (p != null && o != null && p !== o) d[x.mint] = p > o ? 'up' : 'dn'; if (p != null) LASTPX.set(x.mint, p); }
+  return d;
+}
+const tplEl = document.createElement('template');
+const mkEl = html => { tplEl.innerHTML = html.trim(); return tplEl.content.firstElementChild; };
+function patchList(box, items) {
+  if (!box) return;
+  const old = new Map();
+  for (const el of [...box.children]) { if (el.dataset.m && !old.has(el.dataset.m)) old.set(el.dataset.m, el); else el.remove(); }
+  let prev = null;
+  for (const it of items) {
+    let el = old.get(it.k);
+    if (el) {
+      old.delete(it.k);
+      if (el._h !== it.html) { const n = mkEl(it.html); n._h = it.html; el.replaceWith(n); el = n; }
+    } else { el = mkEl(it.html); el._h = it.html; if (it.fresh) el.classList.add('slide'); }
+    if (it.dir) { el.classList.remove('fl-up', 'fl-dn'); void el.offsetWidth; el.classList.add('fl-' + it.dir); }
+    const want = prev ? prev.nextElementSibling : box.firstElementChild;
+    if (want !== el) box.insertBefore(el, want);
+    prev = el;
+  }
+  for (const el of old.values()) el.remove();
+}
+function onRowClick(e) {
+  const el = e.target.closest('[data-m]'); if (!el) return;
+  if (e.target.closest('[data-stop]')) return;
+  const w = e.target.closest('[data-w]');
+  if (w) { const row = rows.find(z => z.mint === w.dataset.w); toggleWatch(row); if (st.tab === 'watch') load(); else draw(); return; }
+  go(el.dataset.h || '/token/' + el.dataset.m);
+}
+function onRowPress(e) { const el = e.target.closest('[data-h]'); if (el) prefetchToken(el.dataset.h); }
 
 // ---------- search ----------
 let sTimer, sSel = -1;
@@ -651,9 +748,12 @@ document.addEventListener('click', e => {
 let CUR_CHAIN = 'solana', CUR_MINT = '';
 async function tokenPage(mint, chain = 'solana') {
   CUR_CHAIN = chain; CUR_MINT = mint; const isSol = chain === 'solana'; const cq = isSol ? '' : '?chain=' + chain;
-  app.innerHTML = `<div class="tp-head"><div class="ico"></div><div style="flex:1"><div class="skel" style="width:200px;height:22px"></div><div class="skel" style="width:300px;margin-top:8px"></div></div></div><div class="kpis">${'<div class="kpi"><div class="skel"></div></div>'.repeat(4)}</div><div class="card" style="height:430px"></div>`;
+  loadLW().catch(() => {});
+  const known = rows.find(r => r.mint === mint);
+  // optimistic: paint what the list already knows (icon, ticker, price) instantly, fill the rest when data lands
+  app.innerHTML = `<a href="/" data-link class="mut tp-back" style="font-size:13px">← Screener</a><div class="tp-head" style="margin-top:10px">${known ? icon(known) : '<div class="ico skel"></div>'}<div style="flex:1">${known ? `<h1>${esc(known.symbol || '')} <span class="mut" style="font-weight:500;font-size:16px">${esc(known.name || '')}</span></h1>` : '<div class="skel" style="width:200px;height:22px"></div>'}<div class="skel" style="width:240px;margin-top:8px"></div></div>${known?.priceUsd ? `<div class="price-big"><b class="mono">${price(known.priceUsd)}</b>${pct(known.change?.h24)} <span class="dim">24h</span></div>` : ''}</div><div class="card scorecard">${scoreSkel}</div><div class="kpis">${'<div class="kpi"><div class="skel"></div><div class="skel" style="width:60%;margin-top:6px"></div></div>'.repeat(4)}</div><div class="card skel" style="height:360px;opacity:.5"></div>`;
   let d;
-  try { d = await api('/api/token/' + encodeURIComponent(mint) + cq); } catch (e) { app.innerHTML = `<div class="err">Couldn't load token: ${esc(e.message)}</div><p style="text-align:center"><a href="/" data-link class="btn">← Back to screener</a></p>`; return; }
+  try { d = await tokenData('/api/token/' + encodeURIComponent(mint) + cq); if (CUR_MINT !== mint) return; } catch (e) { app.innerHTML = `<div class="err">Couldn't load token: ${esc(e.message)}</div><p style="text-align:center"><a href="/" data-link class="btn">← Back to screener</a></p>`; return; }
   const m = d.main || {}; const s = d.safety || {}; const L = links(mint); const exp = explorer(chain, 'token', mint);
   document.title = `${d.symbol || short(mint)} ${m.priceUsd ? '· ' + price(m.priceUsd).replace(/<[^>]+>/g, '') : ''} — On the Scope`;
   const sv = !s.unavailable;
@@ -731,6 +831,14 @@ async function tokenPage(mint, chain = 'solana') {
   };
   drawBig();
   renderPresence();
+  if (isSol) {
+    QUOTE_CB = q => { const a = q[mint]; if (!a) return; const old = m.priceUsd; applyQuote(m, a); if (CUR_MINT !== mint || !$('#pbig')) return; drawBig(); if (old != null && m.priceUsd !== old) { const el = $('#pbig'); el.classList.remove('fl-up', 'fl-dn'); void el.offsetWidth; el.classList.add(m.priceUsd > old ? 'fl-up' : 'fl-dn'); } };
+    quotesSync([mint]); cleanup.push(() => { QUOTE_CB = null; });
+    document.body.insertAdjacentHTML('beforeend', `<div class="tbar" id="tbar"><button class="btn" id="tbWatch" type="button">${isWatched(mint) ? '★' : '☆'}</button><a class="btn pri" href="${L.jup}" target="_blank" rel="noopener" id="tbBuy">⚡ Buy ${esc(d.symbol || '')}</a></div>`);
+    $('#tbWatch').onclick = () => { toggleWatch({ mint, symbol: d.symbol, icon: d.icon }); $('#tbWatch').textContent = isWatched(mint) ? '★' : '☆'; if ($('#wbtn')) $('#wbtn').textContent = isWatched(mint) ? '★ Watching' : '☆ Watchlist'; };
+    $('#tbBuy').onclick = e => { const bo = $('#buyOpen'); if (bo) { e.preventDefault(); $('#buyCard')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); bo.click(); } };
+    cleanup.push(() => $('#tbar')?.remove());
+  }
   $('#pbig').onclick = () => { LS.set('bigMode', LS.get('bigMode', 'price') === 'mcap' ? 'price' : 'mcap'); drawBig(); };
   $('#pbig').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#pbig').click(); } };
   app.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = 'Copied ✓'; setTimeout(() => (b.textContent = 'Copy CA'), 1500); });
@@ -756,8 +864,9 @@ async function tokenPage(mint, chain = 'solana') {
   let curPool = m.pair, trIv = 0;
   const startPool = (pool, px) => {
     curPool = pool; clearInterval(trIv);
-    $('#chart').innerHTML = '';
-    initChart(pool, px || m.priceUsd);
+    $('#chart').innerHTML = '<div class="chart-skel"><div class="skel" style="height:100%;border-radius:0;opacity:.35"></div><span>Loading chart…</span></div>';
+    loadLW().then(() => { if (CUR_MINT === mint && curPool === pool && $('#chart')) { $('#chart').innerHTML = ''; initChart(pool, px || m.priceUsd); } })
+      .catch(e => { if ($('#chart')) $('#chart').innerHTML = `<div class="mut" style="padding:20px">Chart unavailable (${esc(e.message)})</div>`; });
     loadTrades(pool, d.symbol); trIv = setInterval(() => loadTrades(curPool, d.symbol), 20000);
   };
   cleanup.push(() => clearInterval(trIv));

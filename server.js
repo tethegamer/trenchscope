@@ -43,9 +43,19 @@ async function cached(key, ttlMs, fn) {
   store.set(key, { ...(hit || {}), pending });
   return pending;
 }
+// Stale-while-revalidate: once a value exists, callers ALWAYS get it instantly; a stale value triggers one
+// background refresh. Used for the big list endpoints so no visitor ever waits on GeckoTerminal's rate limit.
+function swr(key, ttlMs, fn) {
+  const hit = store.get(key);
+  if (hit && hit.value !== undefined) {
+    if (Date.now() - hit.at >= ttlMs && !hit.pending) cached(key, 0, fn).catch(() => {});
+    return Promise.resolve(hit.value);
+  }
+  return cached(key, ttlMs, fn);
+}
 setInterval(() => { // evict entries older than 1h
   const cut = Date.now() - 3600e3;
-  for (const [k, v] of store) if (!v.pending && v.at < cut) store.delete(k);
+  for (const [k, v] of store) if (!v.pending && v.at < cut && !k.startsWith('list:')) store.delete(k);
 }, 600e3).unref();
 
 // ---------- rate-limited fetch per host ----------
@@ -180,37 +190,38 @@ async function boostedMints() {
   return { boosted: [...sol(top), ...sol(latest)], profiles: sol(profiles) };
 }
 const lists = {
-  trending: () => cached('list:trending', 60e3, async () => {
+  trending: () => swr('list:trending', 60e3, async () => {
     const [gt, b] = await Promise.all([geckoPools('trending_pools', 2), boostedMints()]);
     const base = [...gt, ...b.boosted.map(mint => ({ mint }))];
     const gtSet = new Set(gt.map(r => r.mint));
     // dsOnly = in the list only because it paid for DexScreener boosts (gets no ranking help from that)
     return (await enrich(base)).filter(r => r.pair).map(r => (gtSet.has(r.mint) ? r : { ...r, dsOnly: true }));
   }),
-  new: () => cached('list:new', 45e3, async () => {
+  new: () => swr('list:new', 45e3, async () => {
     const [gt, b] = await Promise.all([geckoPools('new_pools', 2), boostedMints()]);
     const base = [...gt, ...b.profiles.map(mint => ({ mint }))];
     const rows = (await enrich(base)).filter(r => r.pair && r.createdAt);
     return rows.sort((a, b) => b.createdAt - a.createdAt);
   }),
-  gainers: () => cached('list:gainers', 60e3, async () => {
+  gainers: () => swr('list:gainers', 60e3, async () => {
     const [t, n] = await Promise.all([lists.trending(), lists.new()]);
     const m = new Map(); [...t, ...n].forEach(r => m.set(r.mint, r));
     return [...m.values()].filter(r => (r.liquidity || 0) >= 5000 && r.change.h24 != null).sort((a, b) => b.change.h24 - a.change.h24);
   }),
-  pumpfun: () => cached('list:pumpfun', 45e3, async () => {
-    const d = await getJSON('https://frontend-api-v3.pump.fun/coins/currently-live?limit=60&offset=0&includeNsfw=false');
-    const base = (d || []).map(c => ({
-      mint: c.mint, symbol: c.symbol, name: c.name, icon: c.image_uri || null,
-      mcap: num(c.usd_market_cap), createdAt: c.created_timestamp || null, complete: !!c.complete,
-      replies: c.reply_count ?? null, creator: c.creator, pair: c.pump_swap_pool || c.bonding_curve || null,
-      dex: c.complete ? 'pumpswap' : 'pump.fun curve', liveViewers: c.num_participants ?? null,
-      change: {}, volume: {}, liquidity: null, priceUsd: null, src: 'pump.fun', websites: c.website ? [{ url: c.website }] : [],
-      socials: [c.twitter && { type: 'twitter', url: c.twitter }, c.telegram && { type: 'telegram', url: c.telegram }].filter(Boolean),
-    }));
-    // overlay live DexScreener stats where a DEX pair exists (keeps pump.fun-only fields)
-    const ds = await dexTokens(base.map(r => r.mint));
-    return base.map(r => { const p = ds.get(r.mint); if (!p) return r; const x = fromDex(p); return { ...r, ...x, icon: x.icon || r.icon, createdAt: r.createdAt || x.createdAt, src: 'pump.fun+dexscreener' }; });
+  // pump.fun's own API (frontend-api-v3) now 403s server traffic, so this list is built from free sources:
+  // GeckoTerminal's most active pump.fun bonding-curve + PumpSwap pools, plus launches PumpPortal just streamed in.
+  pumpfun: () => swr('list:pumpfun', 45e3, async () => {
+    const page = async (dex, sort) => {
+      try { const d = await cached(`gt:dex:${dex}:${sort}`, 60e3, () => getJSON(`https://api.geckoterminal.com/api/v2/networks/solana/dexes/${dex}/pools?sort=${sort}&page=1`, { prio: PRIO.low })); return (d.data || []).map(fromGecko); } catch { return []; }
+    };
+    const [curve, swap] = await Promise.all([page('pump-fun', 'h24_tx_count_desc'), page('pumpswap', 'h24_tx_count_desc')]);
+    const fresh = (() => { try { return LIVE.recent(60); } catch { return []; } })().filter(r => r.src === 'pump.fun').map(r => ({ ...r, uri: undefined, sig: undefined }));
+    const base = [...curve.map(r => ({ ...r, dex: 'pump.fun curve' })), ...swap.filter(r => /pump$/.test(r.mint)).map(r => ({ ...r, dex: 'pumpswap' })), ...fresh];
+    if (!base.length) throw new Error('pump.fun sources unavailable');
+    const seen = new Set(); const uniq = base.filter(r => r.mint && !SKIP.has(r.mint) && !seen.has(r.mint) && seen.add(r.mint));
+    const ds = await dexTokens(uniq.slice(0, 120).map(r => r.mint));
+    return uniq.map(r => { const p = ds.get(r.mint); if (!p) return { ...r, src: r.src || 'geckoterminal' }; const x = fromDex(p); return { ...r, ...x, icon: x.icon || r.icon, createdAt: r.createdAt || x.createdAt, dex: x.dex || r.dex, src: 'pump.fun+dexscreener' }; })
+      .sort((a, b) => ((b.volume?.h1 || 0) + (b.live && Date.now() - (b.createdAt || 0) < 600e3 ? 1e4 : 0)) - ((a.volume?.h1 || 0) + (a.live && Date.now() - (a.createdAt || 0) < 600e3 ? 1e4 : 0)));
   }),
 };
 
@@ -494,7 +505,7 @@ const LIVE = createLiveFeed({
     return (d.data || []).map(fromGecko).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }),
 });
-app.get('/api/live/status', (req, res) => ok(res, { ...LIVE.stats, buffered: LIVE.recent(500).length, viewers: LIVE.viewers(), solUsd: SOL_USD }, 2));
+app.get('/api/live/status', (req, res) => ok(res, { quotes: { ...QUOTES.stats, clients: QUOTES.clients() }, ...LIVE.stats, buffered: LIVE.recent(500).length, viewers: LIVE.viewers(), solUsd: SOL_USD }, 2));
 app.get('/api/live/new', (req, res) => {
   const chain = String(req.query.chain || 'solana');
   if (chain !== 'solana' && chain !== 'all' && !chains.byId[chain]) return fail(res, new Error('unsupported chain'), 404);
@@ -507,6 +518,61 @@ app.get('/api/live/new', (req, res) => {
   const hb = setInterval(() => send('ping', { now: Date.now(), pump: LIVE.stats.connected }), 20e3);
   req.on('close', () => { clearInterval(hb); off(); });
 });
+// ---------- live quotes: ONE shared DexScreener poll for every hot token, pushed to all open tabs over SSE ----------
+// Upstream cost is fixed (≈7 batched calls every QUOTES_MS) no matter how many people are watching, and it only
+// runs while at least one tab is connected. Each event carries only the tokens whose numbers changed.
+const QUOTES = (() => {
+  const clients = new Set(); const vals = new Map(); const keys = new Map(); let busy = false;
+  const EVERY = Math.max(5000, +process.env.QUOTES_MS || 8000);
+  const pack = q => [q.priceUsd, q.change.m5, q.change.h1, q.change.h6, q.change.h24, q.liquidity, q.mcap, q.volume.h24, q.txns?.h24?.buys ?? null, q.txns?.h24?.sells ?? null];
+  function hot() {
+    const s = new Set();
+    for (const k of ['trending', 'new', 'gainers', 'pumpfun']) { const v = store.get('list:' + k)?.value; if (v) for (const r of v.slice(0, 60)) if (r.mint && (!r.chain || r.chain === 'solana')) s.add(r.mint); }
+    for (const c of clients) for (const m of c.extra) s.add(m);
+    return [...s].slice(0, 240);
+  }
+  async function tick() {
+    if (busy || !clients.size) return; busy = true;
+    try {
+      const mints = hot(); const changed = {}; const now = Date.now();
+      for (let i = 0; i < mints.length; i += 30) {
+        const chunk = mints.slice(i, i + 30);
+        let pairs; try { pairs = await cached('qt:' + chunk.join(','), EVERY - 1500, () => getJSON(`https://api.dexscreener.com/tokens/v1/solana/${chunk.join(',')}`, { prio: PRIO.low, timeout: 8000 })); } catch { continue; }
+        const best = new Map();
+        for (const p of pairs || []) { const m = p?.baseToken?.address; if (p.chainId !== 'solana' || !chunk.includes(m)) continue; const cur = best.get(m); if (!cur || (p.liquidity?.usd || 0) > (cur.liquidity?.usd || 0)) best.set(m, p); }
+        for (const [m, p] of best) {
+          const d = fromDex(p); const q = { priceUsd: d.priceUsd, change: d.change, liquidity: d.liquidity, mcap: d.mcap ?? d.fdv, volume: d.volume, txns: d.txns, at: now };
+          const packed = pack(q); const k = JSON.stringify(packed);
+          if (keys.get(m) !== k) { keys.set(m, k); changed[m] = packed; }
+          vals.set(m, q);
+        }
+      }
+      if (vals.size > 3000) for (const [m, q] of vals) if (now - q.at > 600e3) { vals.delete(m); keys.delete(m); }
+      const n = Object.keys(changed).length;
+      if (n) { const msg = `event: q\ndata: ${JSON.stringify({ t: now, q: changed })}\n\n`; for (const c of clients) { c.res.write(msg); c.res.flush?.(); } }
+      stats.ticks++; stats.lastTick = now; stats.lastChanged = n; stats.tracked = mints.length;
+    } finally { busy = false; }
+  }
+  const stats = { ticks: 0, lastTick: null, lastChanged: 0, tracked: 0 };
+  setInterval(tick, EVERY).unref();
+  return {
+    stats, clients: () => clients.size,
+    // newer streamed numbers win over a list's cached ones (lists are cached 45-60s, quotes ~8s)
+    overlay(r) { const q = vals.get(r.mint); if (!q || (r.chain && r.chain !== 'solana') || Date.now() - q.at > 120e3) return r; return { ...r, priceUsd: q.priceUsd ?? r.priceUsd, change: { ...(r.change || {}), ...q.change }, liquidity: q.liquidity ?? r.liquidity, mcap: q.mcap ?? r.mcap, volume: { ...(r.volume || {}), ...q.volume }, txns: q.txns || r.txns }; },
+    connect(req, res) {
+      const extra = String(req.query.mints || '').split(',').filter(isMint).slice(0, 40);
+      res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+      res.flushHeaders?.();
+      const c = { res, extra }; clients.add(c);
+      const snap = {}; for (const m of extra) { const k = keys.get(m); if (k) snap[m] = JSON.parse(k); }
+      res.write(`retry: 3000\nevent: hello\ndata: ${JSON.stringify({ t: Date.now(), every: EVERY, q: snap })}\n\n`); res.flush?.();
+      if (extra.some(m => !keys.has(m))) setTimeout(tick, 50);
+      const hb = setInterval(() => { res.write(`: hb\n\n`); res.flush?.(); }, 20e3);
+      req.on('close', () => { clearInterval(hb); clients.delete(c); });
+    },
+  };
+})();
+app.get('/api/live/quotes', (req, res) => QUOTES.connect(req, res));
 app.get('/api/stream', (req, res) => {
   presence.connectStream(req, res, { sid: req.query.sid, token: req.query.token, chain: req.query.chain });
 });
@@ -543,7 +609,7 @@ app.get('/api/list/:kind', async (req, res) => {
   const fn = lists[req.params.kind];
   if (!fn) return fail(res, new Error('unknown list'), 404);
   try {
-    let rows = await fn();
+    let rows = (await fn()).map(QUOTES.overlay);
     const boosts = pay.activeBoosts(), scoped = pay.scopedMints();
     let ranked = null;
     if (req.params.kind === 'trending') {
@@ -875,15 +941,25 @@ app.get('/api/health', (req, res) => res.json({ ok: true, config: CONFIG_STATUS(
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/javascript').sendFile(path.join(__dirname, 'public', 'sw.js')); });
 const INDEX_PATH = path.join(__dirname, 'public', 'index.html');
+// content-hashed URLs for the app shell so browsers can cache them forever and still get each deploy instantly
+const ASSET_V = {};
+for (const f of ['app.css', 'app.js']) { try { ASSET_V[f] = crypto.createHash('sha1').update(fs.readFileSync(path.join(__dirname, 'public', f))).digest('hex').slice(0, 10); } catch {} }
+const versionAssets = html => html.replace(/(href|src)="\/(app\.css|app\.js)"/g, (m, a, f) => ASSET_V[f] ? `${a}="/${f}?v=${ASSET_V[f]}"` : m);
 function sendIndex(req, res) {
-  const html = site.injectIndex(fs.readFileSync(INDEX_PATH, 'utf8'), site.siteCa());
+  const html = versionAssets(site.injectIndex(fs.readFileSync(INDEX_PATH, 'utf8'), site.siteCa()));
   res.set('Cache-Control', 'public, max-age=60');
   res.type('html').send(html);
 }
 app.get('/robots.txt', (req, res) => { res.set('Cache-Control', 'public, max-age=3600'); res.type('text/plain').send(site.robotsTxt(site.publicBase())); });
 app.get('/sitemap.xml', (req, res) => { res.set('Cache-Control', 'public, max-age=3600'); res.type('application/xml').send(site.sitemapXml(site.publicBase())); });
 app.get(['/', '/index.html'], sendIndex);
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '5m',
+  setHeaders(res, file) {
+    if (res.req?.query?.v) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    else if (/\.(png|ico|svg|webp|jpg)$/.test(file)) res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+  },
+}));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.get(/^\/(token\/.*|advertise|profile|callers|order\/.*|c\/.*)?$/, sendIndex);
 
