@@ -612,7 +612,7 @@ function renderLive(shown) {
   const u = $('#upd'); if (!u || st.tab !== 'new') return;
   LIVE.times = LIVE.times.filter(t => Date.now() - t < 60e3);
   const lat = LIVE.lat.length ? Math.round(LIVE.lat.reduce((a, b) => a + b, 0) / LIVE.lat.length) : null;
-  u.innerHTML = LIVE.on ? `<span class="livepill" title="${LIVE.pump ? 'pump.fun &amp; LetsBonk launches arrive the instant they hit the chain' : 'New DEX pools are checked every 15s'}"><span class="live"></span>LIVE</span> ${shown ?? filtered().length} shown · ${LIVE.times.length} new/min${LIVE.last ? ` · last ${age(LIVE.last)} ago` : ''}${lat != null && lat < 5000 ? ` · <span class="dim">${lat}ms</span>` : ''}`
+  u.innerHTML = LIVE.on ? `<span class="livepill" title="${LIVE.pump ? 'pump.fun &amp; LetsBonk launches arrive the instant they hit the chain' : 'New DEX pools are checked every 15s'}"><span class="live"></span>LIVE</span> ${shown ?? filtered().length} shown · ${LIVE.times.length} new/min${LIVE.last ? ` · last ${age(LIVE.last)} ago` : ''}${lat != null && lat >= 0 && lat < 5000 ? ` · <span class="dim">${lat}ms</span>` : ''}`
     : `<span class="live" style="background:var(--y)"></span> reconnecting… · updated ${age(lastUpdated)} ago`;
 }
 setInterval(() => { if (st.tab === 'new' && LIVE.es) renderLive(); }, 1000);
@@ -648,7 +648,7 @@ function draw() {
     const sc = x.score, g = sc ? gradeCls(sc.g) : 'n', ch = x.change?.h24 ?? x.change?.h1;
     return { k: x.mint, fresh: fresh(x), dir: dirs[x.mint], html: `<div class="c${x.pinned ? ' pinned' : ''}" data-m="${x.mint}" data-h="${esc(tokenHref(x))}">
       <span class="rk">${x.pinned ? 'AD' : i + 1}</span>
-      <div class="av s-${g}" style="--v:${sc ? sc.t : 0}" title="${sc ? `Scope Score ${sc.t}/100` : 'Scope Score pending'}">${icon(x)}<b class="avs">${sc ? sc.t : '…'}</b></div>
+      <div class="av s-${g}" style="--v:${sc ? sc.t : 0}" title="${sc ? `Scope Score ${sc.t}/100` : 'Scope Score pending'}">${i < 6 ? icon(x).replace('loading="lazy"', 'fetchpriority="high"') : icon(x)}<b class="avs">${sc ? sc.t : '…'}</b></div>
       <div class="mid"><div class="l1"><b class="sym">${st.chain === 'all' ? chainDot(x.chain) : ''}${esc(x.symbol)}</b>${ogTag(x.og)}${x.scope ? scopeTag() : ''}${smChip(smMap[x.mint])}${promoTag(x.promo)}${watchSlot(x.chain, x.mint, x.watchers)}</div>
         <div class="l2"><span>${usd(x.mcap || x.fdv)} <i>MC</i></span>${x.liquidity != null ? `<span>${usd(x.liquidity)} <i>Liq</i></span>` : x.devBuySol ? `<span>${(+x.devBuySol).toFixed(2)} <i>SOL dev buy</i></span>` : ''}<span>${age(x.createdAt)}</span></div>
         <div class="l3">${badge(x.safety)}${pips(x.safety)}</div></div>
