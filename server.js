@@ -966,6 +966,12 @@ app.get(/^\/(token\/.*|advertise|profile|callers|order\/.*|c\/.*)?$/, sendIndex)
 if (require.main === module) {
   app.listen(PORT, () => console.log(`On the Scope on http://localhost:${PORT}`));
   refreshSol(); setInterval(refreshSol, 5 * 60e3).unref(); LIVE.start();
+  // restore the last list snapshot from disk so the first visitor after a deploy never waits on a cold cache
+  // (stale-while-revalidate shows it instantly and refreshes it in the background)
+  const LISTS_FILE = process.env.LISTS_CACHE_FILE || path.join(__dirname, 'data', 'lists-cache.json');
+  try { const snap = JSON.parse(fs.readFileSync(LISTS_FILE, 'utf8')); for (const [k, v] of Object.entries(snap)) if (k.startsWith('list:') && Array.isArray(v.value) && Date.now() - v.at < 6 * 3600e3) store.set(k, { value: v.value, at: v.at }); } catch {}
+  const saveLists = () => { try { const o = {}; for (const [k, v] of store) if (k.startsWith('list:') && v.value) o[k] = { at: v.at, value: v.value }; fs.writeFileSync(LISTS_FILE + '.tmp', JSON.stringify(o)); fs.renameSync(LISTS_FILE + '.tmp', LISTS_FILE); } catch {} };
+  setInterval(saveLists, 120e3).unref(); process.once('SIGTERM', () => { saveLists(); process.exit(0); });
   // warm caches so the first visitor sees data and safety scores
   const warm = () => Promise.allSettled(Object.keys(lists).map(k => lists[k]().then(r => { enqueue(r.slice(0, 80).map(x => x.mint)); enqueueOG(r.slice(0, 80)); })));
   warm(); setInterval(warm, 90e3).unref();

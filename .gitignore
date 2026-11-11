@@ -7,3 +7,4 @@ data/xbot-state.json
 data/alerts.json
 data/vapid.json
 data/track-record.json
+data/lists-cache.json
