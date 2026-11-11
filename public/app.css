@@ -391,6 +391,7 @@ tr.pinned{background:linear-gradient(90deg,rgba(255,209,102,.12),transparent 55%
 /* ======================= v7: app-grade mobile + live feel ======================= */
 html{-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
 html,body{overflow-x:clip}
+main#app{min-height:calc(100vh - 60px)}
 button,a,.c,tr,[data-nav]{touch-action:manipulation}
 /* live price flash (rows, cards, token price) */
 .fl-up .pxc{animation:flu 1.1s ease-out}.fl-dn .pxc{animation:fld 1.1s ease-out}
