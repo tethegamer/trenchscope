@@ -53,10 +53,22 @@ function swr(key, ttlMs, fn) {
   }
   return cached(key, ttlMs, fn);
 }
-setInterval(() => { // evict entries older than 1h
-  const cut = Date.now() - 3600e3;
-  for (const [k, v] of store) if (!v.pending && v.at < cut && !k.startsWith('list:')) store.delete(k);
-}, 600e3).unref();
+// Eviction: raw upstream responses that are only read through cached() (OG searches, quote batches, pair lookups)
+// are dropped soon after they expire; everything else after 1h; plus a hard cap on entry count.
+const SHORT_KEYS = /^(ogs|ogt|qt):/;
+const STORE_MAX = Math.max(500, +process.env.CACHE_MAX_ENTRIES || 3000);
+function sweepStore() {
+  const now = Date.now();
+  for (const [k, v] of store) {
+    if (v.pending || k.startsWith('list:')) continue;
+    if (!(v.at > now - (SHORT_KEYS.test(k) ? 12 * 60e3 : 3600e3))) store.delete(k);
+  }
+  if (store.size > STORE_MAX) {
+    const old = [...store].filter(([k, v]) => !v.pending && !k.startsWith('list:')).sort((a, b) => (a[1].at || 0) - (b[1].at || 0));
+    for (const [k] of old.slice(0, store.size - STORE_MAX)) store.delete(k);
+  }
+}
+setInterval(sweepStore, 60e3).unref();
 
 // ---------- rate-limited fetch per host ----------
 const limits = { 'api.geckoterminal.com': 2200, 'api.rugcheck.xyz': 700, 'api.dexscreener.com': 220, default: 100 };
@@ -244,7 +256,7 @@ async function safetyFor(mint, withGoplus = false, prio = PRIO.low) {
   });
 }
 function peekSafety(mint) { const h = store.get('sf:' + mint) || store.get('sf:' + mint + ':gp'); return h && h.value; }
-function enqueue(mints) { for (const m of mints) if (m && !queued.has(m) && !peekSafety(m)) { queued.add(m); safetyQ.push(m); } }
+function enqueue(mints) { for (const m of mints) if (m && safetyQ.length < 400 && !queued.has(m) && !peekSafety(m)) { queued.add(m); safetyQ.push(m); } }
 let workers = 0;
 async function worker() {
   workers++;
@@ -260,7 +272,19 @@ setInterval(() => { while (workers < 2 && safetyQ.length) worker(); }, 300).unre
 // ---------- OG / VAMP queue ----------
 const og = createOG({ getJSON: (u, o = {}) => getJSON(u, { ...o, prio: PRIO.low }), cached, file: process.env.OG_CACHE_FILE || path.join(__dirname, 'data', 'og-cache.json') });
 const ogQ = []; const ogQueued = new Set(); let ogBusy = false;
-function enqueueOG(rows) { for (const r of rows) if (r && r.mint && r.name && !ogQueued.has(r.mint) && !og.peek(r.mint)) { ogQueued.add(r.mint); ogQ.push({ mint: r.mint, name: r.name, symbol: r.symbol }); } }
+// ---------- memory watchdog ----------
+const v8 = require('v8');
+const memInfo = () => { const h = v8.getHeapStatistics(); return { heapMB: Math.round(h.used_heap_size / 1048576), limitMB: Math.round(h.heap_size_limit / 1048576), rssMB: Math.round(process.memoryUsage.rss() / 1048576) }; };
+setInterval(() => {
+  const m = memInfo();
+  if (m.heapMB > Math.min(m.limitMB * 0.75, +process.env.MEM_SHED_MB || 260)) { // pressure: shed caches hard instead of dying
+    sweepStore(); for (const [k, v] of store) if (!v.pending && !k.startsWith('list:') && !k.startsWith('sf:') && !k.startsWith('score:')) store.delete(k);
+    const dropped = og.prune(Date.now(), 3000, 1500);
+    console.warn(`[mem] pressure heap ${m.heapMB}/${m.limitMB}MB rss ${m.rssMB}MB: shed ${dropped} og records, cache now ${store.size}`);
+  }
+}, 30e3).unref();
+setInterval(() => { const m = memInfo(); const o = og.stats(); console.log(`[mem] heap ${m.heapMB}/${m.limitMB}MB rss ${m.rssMB}MB cache ${store.size} og ${o.results}/${o.mcap} q ${safetyQ.length}/${ogQ.length}/${scoreQ.length}`); }, 15 * 60e3).unref();
+function enqueueOG(rows) { for (const r of rows) if (r && r.mint && r.name && ogQ.length < 400 && !ogQueued.has(r.mint) && !og.peek(r.mint)) { ogQueued.add(r.mint); ogQ.push({ mint: r.mint, name: r.name, symbol: r.symbol }); } }
 setInterval(async () => {
   if (ogBusy || !ogQ.length) return; ogBusy = true;
   const t = ogQ.shift();
@@ -413,7 +437,7 @@ const chip = s => s && { t: s.total, c: s.coin?.score ?? null, cl: s.coin?.label
 function peekScore(chain, addr) { return chip(store.get(scoreKey(chain, addr))?.value); }
 // background: score list tokens once their safety scan is cached (quick mode = no launch scan)
 const scoreQ = []; const scoreQueued = new Set(); let scoreBusy = 0;
-function enqueueScore(mints) { for (const m of mints) if (m && !scoreQueued.has(m) && !store.get(scoreKey('solana', m))?.value) { scoreQueued.add(m); scoreQ.push(m); } }
+function enqueueScore(mints) { for (const m of mints) if (m && scoreQ.length < 400 && !scoreQueued.has(m) && !store.get(scoreKey('solana', m))?.value) { scoreQueued.add(m); scoreQ.push(m); } }
 setInterval(() => {
   while (scoreBusy < 2 && scoreQ.length) {
     const i = scoreQ.findIndex(m => peekSafety(m)); if (i < 0) break;
@@ -936,7 +960,7 @@ const CONFIG_STATUS = () => ({
   X_API_KEY: has('X_API_KEY'), X_API_SECRET: has('X_API_SECRET'), X_ACCESS_TOKEN: has('X_ACCESS_TOKEN'), X_ACCESS_SECRET: has('X_ACCESS_SECRET'),
   VAPID: alerts.status.vapid, BOOST_MIN_SCORE, TRENDING_AD_SLOTS: AD_SLOTS, EXIT_FEE_BPS: EXITS.config.enabled ? EXITS.config.feeBps : null,
 });
-app.get('/api/health', (req, res) => res.json({ ok: true, config: CONFIG_STATUS(), exits: { enabled: EXITS.config.enabled, feeBps: EXITS.config.feeBps }, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, announced: xbot.status.announced, pausedUntil: xbot.status.pausedUntil }, alerts: { subscribers: alerts.status.subscribers, vapid: alerts.status.vapid, telegram: alerts.status.telegram, sent: alerts.status.sent, lastTick: alerts.status.lastTick }, wallets: tracker.status, presence: presence.summary(), cacheEntries: store.size }));
+app.get('/api/health', (req, res) => res.json({ ok: true, config: CONFIG_STATUS(), exits: { enabled: EXITS.config.enabled, feeBps: EXITS.config.feeBps }, gtQueue: gtQueueDepth(), queue: safetyQ.length, ogQueue: ogQ.length, ogCached: Object.keys(og.db.results).length, ogMcap: Object.keys(og.db.mcap).length, mem: memInfo(), scoreQueue: scoreQ.length, xbot: { enabled: xbot.status.enabled, handle: xbot.status.handle, dryRun: xbot.status.dryRun, lastPoll: xbot.status.lastPoll, lastError: xbot.status.lastError, replies: xbot.status.replies, announced: xbot.status.announced, pausedUntil: xbot.status.pausedUntil }, alerts: { subscribers: alerts.status.subscribers, vapid: alerts.status.vapid, telegram: alerts.status.telegram, sent: alerts.status.sent, lastTick: alerts.status.lastTick }, wallets: tracker.status, presence: presence.summary(), cacheEntries: store.size }));
 
 app.use('/vendor/lightweight-charts.js', express.static(path.join(__dirname, 'node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js'), { maxAge: '7d' }));
 app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/javascript').sendFile(path.join(__dirname, 'public', 'sw.js')); });
